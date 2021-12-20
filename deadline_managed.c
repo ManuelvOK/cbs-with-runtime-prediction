@@ -13,6 +13,8 @@
 
 #define gettid() syscall(__NR_gettid)
 
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 #define SCHED_DEADLINE       6
 
 /* XXX use the proper syscall numbers */
@@ -30,8 +32,6 @@
 #define __NR_sched_setattr           380
 #define __NR_sched_getattr           381
 #endif
-
-static volatile int done;
 
 struct sched_attr {
     __u32 size;
@@ -66,67 +66,24 @@ int sched_getattr(pid_t pid,
     return syscall(__NR_sched_getattr, pid, attr, size, flags);
 }
 
-void *run_deadline(void *data)
-{
-    struct sched_attr attr;
-    int x = 0;
-    int ret;
-    unsigned int flags = 0;
-
-     cpu_set_t set;
-     CPU_SET(0,&set);
-
-     ret = sched_setaffinity(0, sizeof(set), &set);
-     if (ret < 0) {
-         done = 0;
-         perror("sched_setaffinity");
-         exit(-1);
-     }
-
-    printf("deadline thread started [%ld]\n", gettid());
-
-    attr.size = sizeof(attr);
-    attr.sched_flags = 0;
-    attr.sched_nice = 0;
-    attr.sched_priority = 0;
-
-    /* This creates a 10ms/30ms reservation */
-    attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_runtime = 10 * 1000 * 1000;
-    attr.sched_period = attr.sched_deadline = 30 * 1000 * 1000;
-
-    ret = sched_setattr(0, &attr, flags);
-    if (ret < 0) {
-        done = 0;
-        perror("sched_setattr");
-        exit(-1);
-    }
-
-    while (!done) {
-        x++;
-    }
-
-    printf("deadline thread dies [%ld]\n", x, gettid());
-    return NULL;
-}
-
 struct thread_data {
     sem_t *sem;
     float execution_time;
     float period;
     int running;
+    int next_period;
 };
 
 void *run_task(void *data) {
 
     int ret;
+    int id = gettid();
 
     cpu_set_t set;
     CPU_SET(0,&set);
 
     ret = sched_setaffinity(0, sizeof(set), &set);
     if (ret < 0) {
-        done = 0;
         perror("sched_setaffinity");
         exit(-1);
     }
@@ -136,7 +93,7 @@ void *run_task(void *data) {
     struct timespec tend={0,0};
     clock_gettime(CLOCK_MONOTONIC, &tstart);
     float fstart = tstart.tv_sec + 1.0e-9*tstart.tv_nsec;
-    printf("%.5f: starting task as deadline thread\n", fstart);
+    printf("%.5f: starting task as deadline thread [%ld]\n", fstart, id);
 
     struct sched_attr attr;
     unsigned int flags = 0;
@@ -147,12 +104,11 @@ void *run_task(void *data) {
     attr.sched_priority = 0;
 
     attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_runtime = t_data->execution_time * 1000 * 1000;
+    attr.sched_runtime = (t_data->execution_time + 1) * 1000 * 1000;
     attr.sched_period = attr.sched_deadline = t_data->period * 1000 * 1000;
 
     ret = sched_setattr(0, &attr, flags);
     if (ret < 0) {
-        done = 0;
         perror("sched_setattr");
         exit(-1);
     }
@@ -161,52 +117,73 @@ void *run_task(void *data) {
         sem_wait(t_data->sem);
         clock_gettime(CLOCK_MONOTONIC, &tstart);
         fstart = tstart.tv_sec + 1.0e-9*tstart.tv_nsec;
-        printf("%.5f: starting job\n", fstart);
+        printf("%.5f: starting job [%ld]\n", fstart, id);
         while (1) {
             clock_gettime(CLOCK_MONOTONIC, &tend);
             float interval = (tend.tv_sec + 1.0e-9*tend.tv_nsec) - (tstart.tv_sec + 1.0e-9*tstart.tv_nsec);
             if (interval > t_data->execution_time / 1000.0) {
-                printf("%.5f: job finished\n", fstart + interval);
+                printf("%.5f: job finished [%ld]\n", fstart + interval, id);
                 break;
             }
         }
     }
     clock_gettime(CLOCK_MONOTONIC, &tstart);
     fstart = tstart.tv_sec + 1.0e-9*tstart.tv_nsec;
-    printf("%.5f: stopping task\n", fstart);
+    printf("%.5f: stopping task [%ld]\n", fstart, id);
 }
+
+#define N_TASKS 2
 
 int main (int argc, char **argv)
 {
-    sem_t sem1;
-    sem_init(&sem1,0,0);
-    sem_t sem2;
-    sem_init(&sem2,0,0);
 
-    struct thread_data data1 = {.sem = &sem1, .execution_time = 20, .period = 40, .running = 1};
-    struct thread_data data2 = {.sem = &sem2, .execution_time = 20, .period = 40, .running = 1};
+    cpu_set_t set;
+    CPU_SET(1,&set);
 
-    pthread_t thread1;
-    pthread_create(&thread1, NULL, run_task, &data1);
-
-    pthread_t thread2;
-    pthread_create(&thread2, NULL, run_task, &data2);
-
-    struct timespec delay={0,data1.period * 1000 * 1000};
-    for (int i = 0; i < 5; ++i) {
-        sem_post(&sem1);
-        sem_post(&sem2);
-        nanosleep(&delay, NULL);
+    int ret;
+    ret = sched_setaffinity(0, sizeof(set), &set);
+    if (ret < 0) {
+        perror("sched_setaffinity");
+        exit(-1);
     }
-    data1.running = 0;
-    sem_post(&sem1);
+    const int n_tasks = N_TASKS;
+    sem_t sems[n_tasks];
 
-    data2.running = 0;
-    sem_post(&sem2);
+    struct thread_data data[N_TASKS] = {{.sem = &sems[0], .execution_time = 10, .period = 40,
+                                         .running = 1},
+                                        {.sem = &sems[1], .execution_time = 10, .period = 30,
+                                         .running = 1}};
 
-    done = 1;
-    pthread_join(thread1, NULL);
-    pthread_join(thread2, NULL);
+    pthread_t threads[n_tasks];
+    for (int i = 0; i < n_tasks; ++i) {
+        sem_init(&sems[i],0,0);
+        pthread_create(&threads[i], NULL, run_task, &data[i]);
+    }
+
+    int now = 0;
+    int next_period = 0;
+    while (now < 250) {
+        for (int i = 0; i < n_tasks; ++i) {
+            if (now == data[i].next_period) {
+                sem_post(&sems[i]);
+                data[i].next_period += data[i].period;
+            }
+            if (next_period == now) {
+                next_period = data[i].next_period;
+            } else {
+                next_period = MIN(next_period, data[i].next_period);
+            }
+        }
+        struct timespec delay={0,(next_period - now) * 1000 * 1000};
+        nanosleep(&delay, NULL);
+        now = next_period;
+    }
+
+    for (int i = 0; i < n_tasks; ++i) {
+        data[i].running = 0;
+        sem_post(&sems[i]);
+        pthread_join(threads[i], NULL);
+    }
     return 0;
 }
 
