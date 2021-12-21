@@ -1,17 +1,33 @@
 BUILDDIR=build
-TARGET=$(BUILDDIR)/deadline_managed
+DEPDIR    := .d
+
+TARGET=$(BUILDDIR)/main
 
 RM=rm -rf
 MKDIR=mkdir -p
 
 PID=$(shell ps | grep zsh | xargs echo | cut -d " " -f1)
 
+SRCSALL := $(patsubst ./%, %, $(shell find -name "*.cc" -o -name "*.h"))
+SRCSCC  := $(filter %.cc, $(SRCSALL))
+SRCH    := $(filter %.h, $(SRCSALL))
+OBJS    := $(patsubst %.cc, $(BUILDDIR)/%.o, $(SRCSCC))
+DEPS    := $(patsubst %.cc, $(DEPDIR)/%.d, $(SRCSCC))
+
+CXXFLAGS     := -std=c++2a -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-functions -O0
+DEPFLAGS     += -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
+CXXFLAGSTAGS := -I/home/morion/.vim/tags
+
+DYN_LIBS    := -pthread
+
 .PHONY: all
-all: | $(BUILDDIR)/
+all: | $(BUILDDIR)/ $(DEPDIR)/
 all: $(TARGET)
 
-$(BUILDDIR)/%: %.c
-	gcc $< -o $@ -pthread
+$(DEPS): $(DEPDIR)/
+
+$(TARGET): $(OBJS)
+	$(CXX) -o $@ $^ $(DYN_LIBS)
 	sudo setcap 'cap_sys_nice=eip' $@
 
 %/:
@@ -19,11 +35,24 @@ $(BUILDDIR)/%: %.c
 
 .PHONY: clean
 clean:
-	$(RM) build/
+	$(RM) $(BUILDDIR)
+	$(RM) $(DEPDIR)
+
+.PHONY: sure
+sure: clean
+	@$(MAKE) --no-print-directory
 
 .PHONY: run
 run: all
 	@$(TARGET)
+
+tags: $(SRCSCC)
+	$(CXX) $(CXXFLAGSTAGS) $(CXXFLAGS) -M $(SRCSCC) | sed -e 's/[\\ ]/\n/g' | \
+	sed -e '/^$$/d' -e '/\.o:[ \t]*$$/d' | \
+	ctags -L - --c++-kinds=+p --fields=+iaS --extra=+q -o "tags" --language-force=C++
+
+$(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
+	$(CXX) $(DEPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 .PHONY: trace
 trace: all
@@ -48,3 +77,5 @@ deactivate:
 .PHONY: debug
 debug:
 	echo $(PID)
+
+-include $(wildcard $(DEPS))
