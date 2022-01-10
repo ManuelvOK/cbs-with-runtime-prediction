@@ -132,16 +132,13 @@ void Task::run_job() const {
     std::chrono::duration<double> execution_time(this->_execution_time / 1000.0);
     std::cout << (t_start - Task::process_start).count() << ": starting job "  << this->_next_job
               << " for task " << this->_id << std::endl;
-    while (1) {
-        t_end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> diff = t_end - t_start;
-        if (diff > execution_time) {
-            std::cout << (t_end - Task::process_start).count()
-                      << ": finished job " << this->_next_job << " for task " << this->_id
-                      << std::endl;
-            break;
-        }
+    for (int i = 0; i < this->_execution_time * 1000 * 400; ++i) {
+        ;
     }
+    t_end = std::chrono::high_resolution_clock::now();
+    std::cout << (t_end - Task::process_start).count()
+              << ": finished job " << this->_next_job << " for task " << this->_id
+              << std::endl;
 }
 
 void Task::join() {

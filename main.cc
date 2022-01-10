@@ -55,7 +55,7 @@ int main (void) {
         /* sleep if next spawn is in future */
         int time_to_next_spawn = next_task->_next_period - now;
         if (time_to_next_spawn) {
-            std::chrono::duration<double> sleep_time(time_to_next_spawn / 1000.0);
+            std::chrono::duration<double> sleep_time((time_to_next_spawn - 0.5) / 1000.0);
             std::this_thread::sleep_for(sleep_time);
             now = next_task->_next_period;
         }
