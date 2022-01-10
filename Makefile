@@ -1,7 +1,8 @@
 BUILDDIR=build
 DEPDIR    := .d
 
-TARGET=$(BUILDDIR)/main
+TARGETNAME=sched_sim
+TARGET=$(BUILDDIR)/$(TARGETNAME)
 
 RM=rm -rf
 MKDIR=mkdir -p
@@ -57,13 +58,19 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 .PHONY: trace
 trace: all
 	sudo trace-cmd record -e sched_switch $(TARGET)
+	trace-cmd report | head -n2 | tail -n1 > trace_report
+	trace-cmd report | grep "$(TARGETNAME)" >> trace_report
+	./eval.py trace_report 2
+
+.PHONY: gtrace
+gtrace: trace
 	kernelshark trace.dat
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate
 activate:
 	sudo sh -c "echo -1 > /proc/sys/kernel/sched_rt_runtime_us"
-	ls /sys/fs/cgroup/cpuset
+	sudo $(MKDIR) /sys/fs/cgroup/cpuset
 	mountpoint -q /sys/fs/cgroup/cpuset; [[ 0 -ne $$? ]] && sudo mount -t cgroup -o cpuset cpuset /sys/fs/cgroup/cpuset || true
 	sudo $(MKDIR) $(CPUSET_DIR)
 	sudo sh -c "echo 1 > $(CPUSET_DIR)/cpuset.cpu_exclusive"

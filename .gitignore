@@ -1,3 +1,5 @@
 trace.dat
+trace_report
 tags
 .d/
+*.log

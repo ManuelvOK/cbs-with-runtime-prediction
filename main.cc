@@ -31,9 +31,11 @@ int main (void) {
     Task::process_start = std::chrono::high_resolution_clock::now();
     /* initialise tasks */
     std::vector<Task *> tasks;
-    tasks.emplace_back(new Task{0, 10, 40, 4});
-    tasks.emplace_back(new Task{1, 10, 30, 4});
+    tasks.emplace_back(new Task{0, 10, 40, 20});
+    tasks.emplace_back(new Task{1, 10, 30, 25});
 
+    std::chrono::duration<double> sleep_time(0.02);
+    std::this_thread::sleep_for(sleep_time);
     /* spawn jobs */
     int now = 0;
     while (true) {
@@ -62,7 +64,7 @@ int main (void) {
 
         /* spawn job */
         auto now = std::chrono::high_resolution_clock::now();
-        std::cout << (now - Task::process_start).count()
+        std::cout << (now - Task::process_start).count() / 1000
                   << ": spawning job " << next_task->_next_job + next_task->_n_jobs_waiting
                   << " for task " << next_task->_id
                   << std::endl;
@@ -74,6 +76,12 @@ int main (void) {
     for (Task *task: tasks) {
         task->join();
     }
+
+    for (Task *t: tasks) {
+        t->write_back_events();
+        delete t;
+    }
+
     return 0;
 }
 

@@ -5,12 +5,19 @@
 #include <linux/kernel.h>
 #include <sys/syscall.h>
 
+#include <cmath>
+#include <ctime>
 #include <functional>
 #include <iostream>
+#include <sstream>
 
 using namespace std::chrono_literals;
 
+using time_point = std::chrono::time_point<std::chrono::system_clock>;
+
 std::chrono::time_point<std::chrono::high_resolution_clock> Task::process_start;
+
+static time_point thread_now();
 
 #define gettid() syscall(__NR_gettid)
 
@@ -70,6 +77,13 @@ struct sched_attr {
 Task::Task(int id, int execution_time, int period, int n_jobs)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period), _n_jobs(n_jobs) {
         this->_thread = std::thread(&Task::run_task, this);
+        std::stringstream ss;
+        ss << this->_id << ".log";
+        this->_log_file = std::fstream(ss.str(), std::ios::out);
+}
+
+Task::~Task() {
+    this->_log_file.close();
 }
 
 void Task::run_task() {
@@ -85,9 +99,8 @@ void Task::run_task() {
         exit(-1);
     }
     /* log start */
-    auto now = std::chrono::high_resolution_clock::now();
-    std::cout << (now - Task::process_start).count() << ": starting task " << this->_id
-              << " pid: " << this->_pid << std::endl;
+    //auto now = std::chrono::high_resolution_clock::now();
+    this->_log_file << "pid: " << this->_pid << std::endl;
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -121,26 +134,52 @@ void Task::run_task() {
     }
 
     /* log stop */
-    now = std::chrono::high_resolution_clock::now();
-    std::cout << (now - Task::process_start).count() << ": stopping task " << this->_id
-              << std::endl;
+    //now = std::chrono::high_resolution_clock::now();
+    //this->_log_file << (now - Task::process_start).count() / 1000 << ": stopping task" << std::endl;
 }
 
-void Task::run_job() const {
-    auto t_start = std::chrono::high_resolution_clock::now();
-    auto t_end = t_start;
-    std::chrono::duration<double> execution_time(this->_execution_time / 1000.0);
-    std::cout << (t_start - Task::process_start).count() << ": starting job "  << this->_next_job
-              << " for task " << this->_id << std::endl;
-    for (int i = 0; i < this->_execution_time * 1000 * 400; ++i) {
-        ;
+void Task::run_job() {
+    auto t_begin = std::chrono::high_resolution_clock::now();
+    auto t_end = t_begin;
+    time_point thread_begin = thread_now();
+
+    std::stringstream message;
+    message << "starting job " << this->_next_job;
+    this->_events.emplace((t_begin - Task::process_start).count() / 1000, message.str());
+
+    this->_result = 1.5;
+    for (int i = 0; i < this->_execution_time * 1000 * 100; ++i) {
+        this->_result *= this->_result * this->_result;
     }
+
     t_end = std::chrono::high_resolution_clock::now();
-    std::cout << (t_end - Task::process_start).count()
-              << ": finished job " << this->_next_job << " for task " << this->_id
-              << std::endl;
+    time_point thread_end = thread_now();
+    message = std::stringstream("");
+    message << "finished job " << this->_next_job
+            << ". Runtime " << (thread_end - thread_begin).count() / 1000;
+    this->_events.emplace((t_end - Task::process_start).count() / 1000, message.str());
 }
 
 void Task::join() {
     this->_thread.join();
 }
+
+void Task::write_back_events() {
+    for (auto &[time, event]: this->_events) {
+        this->_log_file << time << ": " << event << std::endl;
+    }
+}
+
+time_point thread_now() {
+    using rep = typename std::chrono::nanoseconds::rep;
+    using duration = typename std::chrono::nanoseconds;
+
+    struct timespec cputime;
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cputime);
+
+    rep ns = static_cast<rep>(cputime.tv_nsec) +
+             static_cast<rep>(cputime.tv_sec) * 1'000'000'000;
+    return time_point(duration(ns));
+}
+
