@@ -59,6 +59,11 @@ class Task:
         for (t, e) in sorted(self.sched_events + job_events, key=lambda x: x[0]):
             print(f"{t%10000000}: {e}")
 
+    def print_jobs(self, file: IO) -> None:
+        for job in self.jobs.values():
+            # TODO: calculate n_parts (hardcoded 1 for now)
+            print(f"j {job.id} {job.end - job.deadline} 1", file=file)
+
 
 def process_cmd_args():
     aparser = argparse.ArgumentParser()
@@ -170,9 +175,9 @@ def main():
     for task in tasks.values():
         task.sync_events()
 
-    for task in tasks.values():
-        print(f"=== Task {task.id} ===")
-        task.print_events()
+    with open(args.output, "w+") as f:
+        for task in tasks.values():
+            task.print_jobs(f)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ trace: all
 .PHONY: report
 report: trace
 	trace-cmd report | grep "$(TARGETNAME)" > trace_report
-	./eval.py trace_report out.log
+	./eval.py trace_report out.log -o $(REPORT_FILE)
 
 .PHONY: gtrace
 gtrace: trace show
