@@ -12,10 +12,10 @@
 #include <sstream>
 
 using namespace std::chrono_literals;
-
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
+using duration = typename std::chrono::nanoseconds;
 
-std::chrono::time_point<std::chrono::steady_clock> Task::process_start;
+time_point Task::process_start;
 
 static time_point thread_now();
 
@@ -74,8 +74,8 @@ struct sched_attr {
 
 
 
-Task::Task(int id, int execution_time, int period, int n_jobs)
-    : _id(id), _sem(0), _execution_time(execution_time), _period(period), _n_jobs(n_jobs) {
+Task::Task(int id, duration execution_time, duration period)
+    : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
         this->_thread = std::thread(&Task::run_task, this);
 }
 
@@ -91,8 +91,6 @@ void Task::run_task() {
         perror("sched_setaffinity");
         exit(-1);
     }
-    /* log start */
-    //auto now = std::chrono::steady_clock::now();
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -104,8 +102,8 @@ void Task::run_task() {
     attr.sched_priority = 0;
 
     attr.sched_policy = SCHED_DEADLINE;
-    attr.sched_runtime = (this->_execution_time + 1) * 1000 * 1000;
-    attr.sched_period = attr.sched_deadline = this->_period * 1000 * 1000;
+    attr.sched_runtime = this->_execution_time / 1ns;
+    attr.sched_period = attr.sched_deadline = this->_period / 1ns;
 
     ret = sched_setattr(0, &attr, flags);
     if (ret < 0) {
@@ -115,41 +113,42 @@ void Task::run_task() {
 
     /* run jobs if there are some */
     while (true) {
-        if (this->_next_job == this->_n_jobs) {
+        this->_sem.acquire();
+        if (this->_jobs.empty()) {
             this->_running = false;
             break;
         }
-        this->_sem.acquire();
         this->run_job();
         this->_next_job++;
         this->_n_jobs_waiting--;
     }
-
-    /* log stop */
-    //now = std::chrono::steady_clock::now();
-    //this->_log_file << (now - Task::process_start).count() / 1000 << ": stopping task" << std::endl;
 }
 
 void Task::run_job() {
-    auto t_begin = std::chrono::steady_clock::now();
-    auto t_end = t_begin;
+    /* get jobs parameters */
+    Job job = this->_jobs.front();
+    this->_jobs.pop();
+
+    time_point t_begin = std::chrono::steady_clock::now();
+    time_point t_end = t_begin;
     time_point thread_begin = thread_now();
 
-    std::stringstream message;
-    message << "starting job " << this->_next_job;
-    this->_events.emplace(t_begin.time_since_epoch().count() / 1000, message.str());
+    std::stringstream event;
+    event << "b " << t_begin.time_since_epoch() / 1us << " " << job._id;
+    this->_events.push_back(event.str());
 
     this->_result = 1.5;
-    for (int i = 0; i < this->_execution_time * 1000 * 100; ++i) {
-        this->_result *= this->_result * this->_result;
+    for (int i = 0; i < job._execution_time / 1us * 10; ++i) {
+        this->_result *= std::exp(this->_result * std::exp(this->_result * std::exp(this->_result)));
     }
 
     t_end = std::chrono::steady_clock::now();
     time_point thread_end = thread_now();
-    message = std::stringstream("");
-    message << "finished job " << this->_next_job
-            << ". Runtime " << (thread_end - thread_begin).count() / 1000;
-    this->_events.emplace(t_end.time_since_epoch().count() / 1000, message.str());
+
+    event = std::stringstream("");
+    event << "e " << t_end.time_since_epoch() / 1us << " " << job._id
+          << " " << (thread_end - thread_begin) / 1us;
+    this->_events.push_back(event.str());
 }
 
 void Task::join() {
@@ -157,15 +156,14 @@ void Task::join() {
 }
 
 void Task::write_back_events() {
-    std::cout << this->_id << ":pid:" << this->_pid << std::endl;
-    for (auto &[time, event]: this->_events) {
-        std::cout << this->_id << ":" << time << ":" << event << std::endl;
+    std::cout << this->_id << " p " << this->_pid << std::endl;
+    for (std::string event: this->_events) {
+        std::cout << this->_id << " " << event << std::endl;
     }
 }
 
 time_point thread_now() {
     using rep = typename std::chrono::nanoseconds::rep;
-    using duration = typename std::chrono::nanoseconds;
 
     struct timespec cputime;
 

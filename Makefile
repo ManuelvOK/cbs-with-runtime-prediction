@@ -61,12 +61,15 @@ trace: all
 
 .PHONY: report
 report: trace
-	trace-cmd report | grep "$(TARGETNAME)" >> trace_report
+	trace-cmd report | grep "$(TARGETNAME)" > trace_report
 	./eval.py trace_report out.log
 
 .PHONY: gtrace
-gtrace: trace
-	kernelshark trace.dat
+gtrace: trace show
+
+.PHONY: show
+show: trace.dat
+	kernelshark $^
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate

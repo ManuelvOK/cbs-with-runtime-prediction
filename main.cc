@@ -15,6 +15,9 @@
 
 #include "task.h"
 
+using namespace std::chrono_literals;
+using time_point = std::chrono::time_point<std::chrono::steady_clock>;
+using duration = typename std::chrono::nanoseconds;
 
 int main (void) {
     /* put the job spawning onto CPU 1 */
@@ -28,19 +31,27 @@ int main (void) {
         exit(-1);
     }
 
-    Task::process_start = std::chrono::steady_clock::now();
+    time_point start = std::chrono::steady_clock::now();
+    Task::process_start = start;
     /* initialise tasks */
     std::vector<Task *> tasks;
-    tasks.emplace_back(new Task{0, 10, 40, 20});
-    tasks.emplace_back(new Task{1, 10, 30, 25});
+    tasks.emplace_back(new Task{0, 100us, 400us});
+    tasks.emplace_back(new Task{1, 150us, 600us});
 
-    std::map<long, std::string> events;
+    std::map<int, std::vector<std::string>> events;
 
-    std::chrono::duration<double> sleep_time(0.02);
-    std::this_thread::sleep_for(sleep_time);
+    std::this_thread::sleep_for(1us);
+
+    start = std::chrono::steady_clock::now();
+    std::cerr << "start: " << start.time_since_epoch().count() << std::endl;
+
+    for (Task *t: tasks) {
+        t->_next_period = start;
+    }
+
     /* spawn jobs */
-    int now = 0;
-    while (true) {
+    time_point now = start;
+    for (int i = 0; i < 50; ++i) {
         /* find next task to spawn job */
         Task *next_task = *std::min_element(tasks.begin(), tasks.end(),
             [](Task *a, Task *b) {
@@ -57,30 +68,37 @@ int main (void) {
         }
 
         /* sleep if next spawn is in future */
-        int time_to_next_spawn = next_task->_next_period - now;
-        if (time_to_next_spawn) {
-            std::chrono::duration<double> sleep_time((time_to_next_spawn - 0.5) / 1000.0);
-            std::this_thread::sleep_for(sleep_time);
-            now = next_task->_next_period;
+        duration time_to_next_spawn = next_task->_next_period - now;
+        if (time_to_next_spawn > 1ns) {
+            std::this_thread::sleep_until(next_task->_next_period);
         }
 
         /* spawn job */
-        auto now = std::chrono::steady_clock::now();
-        std::stringstream message;
-        message << "spawning job " << next_task->_next_job + next_task->_n_jobs_waiting
-                << " for task " << next_task->_id;
-        events.emplace(now.time_since_epoch().count() / 1000, message.str());
-        next_task->_n_jobs_waiting++;
+        now = std::chrono::steady_clock::now();
+        int job_id = next_task->_next_job + next_task->_n_jobs_waiting;
+        duration job_execution_time = next_task->_execution_time;
+        time_point job_deadline = now + next_task->_period;
+
+        std::stringstream event;
+        event << "s " << now.time_since_epoch() / 1us << " " << job_id
+              << " " << job_deadline.time_since_epoch() / 1us;
+        events[next_task->_id].push_back(event.str());
         next_task->_next_period += next_task->_period;
+        next_task->_n_jobs_waiting++;
+
+        next_task->_jobs.emplace(job_id, job_execution_time, job_deadline);
         next_task->_sem.release();
     }
 
     for (Task *task: tasks) {
+        task->_sem.release();
         task->join();
     }
 
-    for (auto &[time, event]: events) {
-        std::cout << "-1:" << time << ":" << event << std::endl;
+    for (auto &[task_id, es]: events) {
+        for (std::string e: es) {
+            std::cout << task_id << " " << e << std::endl;
+        }
     }
 
     for (Task *t: tasks) {
