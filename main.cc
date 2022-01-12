@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <map>
 #include <semaphore>
+#include <sstream>
 #include <thread>
 #include <vector>
 
 #include "task.h"
-
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 
 int main (void) {
@@ -28,11 +28,13 @@ int main (void) {
         exit(-1);
     }
 
-    Task::process_start = std::chrono::high_resolution_clock::now();
+    Task::process_start = std::chrono::steady_clock::now();
     /* initialise tasks */
     std::vector<Task *> tasks;
     tasks.emplace_back(new Task{0, 10, 40, 20});
     tasks.emplace_back(new Task{1, 10, 30, 25});
+
+    std::map<long, std::string> events;
 
     std::chrono::duration<double> sleep_time(0.02);
     std::this_thread::sleep_for(sleep_time);
@@ -63,11 +65,11 @@ int main (void) {
         }
 
         /* spawn job */
-        auto now = std::chrono::high_resolution_clock::now();
-        std::cout << (now - Task::process_start).count() / 1000
-                  << ": spawning job " << next_task->_next_job + next_task->_n_jobs_waiting
-                  << " for task " << next_task->_id
-                  << std::endl;
+        auto now = std::chrono::steady_clock::now();
+        std::stringstream message;
+        message << "spawning job " << next_task->_next_job + next_task->_n_jobs_waiting
+                << " for task " << next_task->_id;
+        events.emplace(now.time_since_epoch().count() / 1000, message.str());
         next_task->_n_jobs_waiting++;
         next_task->_next_period += next_task->_period;
         next_task->_sem.release();
@@ -75,6 +77,10 @@ int main (void) {
 
     for (Task *task: tasks) {
         task->join();
+    }
+
+    for (auto &[time, event]: events) {
+        std::cout << "-1:" << time << ":" << event << std::endl;
     }
 
     for (Task *t: tasks) {

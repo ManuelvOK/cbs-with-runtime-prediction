@@ -1,13 +1,13 @@
-BUILDDIR=build
-DEPDIR    := .d
+BUILDDIR :=build
+DEPDIR   :=.d
 
-TARGETNAME=sched_sim
-TARGET=$(BUILDDIR)/$(TARGETNAME)
+TARGETNAME :=sched_sim
+TARGET     :=$(BUILDDIR)/$(TARGETNAME)
 
-RM=rm -rf
-MKDIR=mkdir -p
+RM    :=rm -rf
+MKDIR :=mkdir -p
 
-PID=$(shell ps | grep zsh | xargs echo | cut -d " " -f1)
+PID :=$(shell ps | grep zsh | xargs echo | cut -d " " -f1)
 
 SRCSALL := $(patsubst ./%, %, $(shell find -name "*.cc" -o -name "*.h"))
 SRCSCC  := $(filter %.cc, $(SRCSALL))
@@ -19,7 +19,7 @@ CXXFLAGS     := -std=c++2a -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-func
 DEPFLAGS     += -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
 CXXFLAGSTAGS := -I/home/morion/.vim/tags
 
-DYN_LIBS    := -pthread
+DYN_LIBS     := -pthread
 
 .PHONY: all
 all: | $(BUILDDIR)/ $(DEPDIR)/
@@ -57,10 +57,12 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 
 .PHONY: trace
 trace: all
-	sudo trace-cmd record -e sched_switch $(TARGET)
-	trace-cmd report | head -n2 | tail -n1 > trace_report
+	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) > out.log
+
+.PHONY: report
+report: trace
 	trace-cmd report | grep "$(TARGETNAME)" >> trace_report
-	./eval.py trace_report 2
+	./eval.py trace_report out.log
 
 .PHONY: gtrace
 gtrace: trace

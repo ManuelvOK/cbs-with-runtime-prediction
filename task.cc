@@ -13,9 +13,9 @@
 
 using namespace std::chrono_literals;
 
-using time_point = std::chrono::time_point<std::chrono::system_clock>;
+using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 
-std::chrono::time_point<std::chrono::high_resolution_clock> Task::process_start;
+std::chrono::time_point<std::chrono::steady_clock> Task::process_start;
 
 static time_point thread_now();
 
@@ -77,13 +77,6 @@ struct sched_attr {
 Task::Task(int id, int execution_time, int period, int n_jobs)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period), _n_jobs(n_jobs) {
         this->_thread = std::thread(&Task::run_task, this);
-        std::stringstream ss;
-        ss << this->_id << ".log";
-        this->_log_file = std::fstream(ss.str(), std::ios::out);
-}
-
-Task::~Task() {
-    this->_log_file.close();
 }
 
 void Task::run_task() {
@@ -99,8 +92,7 @@ void Task::run_task() {
         exit(-1);
     }
     /* log start */
-    //auto now = std::chrono::high_resolution_clock::now();
-    this->_log_file << "pid: " << this->_pid << std::endl;
+    //auto now = std::chrono::steady_clock::now();
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -134,30 +126,30 @@ void Task::run_task() {
     }
 
     /* log stop */
-    //now = std::chrono::high_resolution_clock::now();
+    //now = std::chrono::steady_clock::now();
     //this->_log_file << (now - Task::process_start).count() / 1000 << ": stopping task" << std::endl;
 }
 
 void Task::run_job() {
-    auto t_begin = std::chrono::high_resolution_clock::now();
+    auto t_begin = std::chrono::steady_clock::now();
     auto t_end = t_begin;
     time_point thread_begin = thread_now();
 
     std::stringstream message;
     message << "starting job " << this->_next_job;
-    this->_events.emplace((t_begin - Task::process_start).count() / 1000, message.str());
+    this->_events.emplace(t_begin.time_since_epoch().count() / 1000, message.str());
 
     this->_result = 1.5;
     for (int i = 0; i < this->_execution_time * 1000 * 100; ++i) {
         this->_result *= this->_result * this->_result;
     }
 
-    t_end = std::chrono::high_resolution_clock::now();
+    t_end = std::chrono::steady_clock::now();
     time_point thread_end = thread_now();
     message = std::stringstream("");
     message << "finished job " << this->_next_job
             << ". Runtime " << (thread_end - thread_begin).count() / 1000;
-    this->_events.emplace((t_end - Task::process_start).count() / 1000, message.str());
+    this->_events.emplace(t_end.time_since_epoch().count() / 1000, message.str());
 }
 
 void Task::join() {
@@ -165,8 +157,9 @@ void Task::join() {
 }
 
 void Task::write_back_events() {
+    std::cout << this->_id << ":pid:" << this->_pid << std::endl;
     for (auto &[time, event]: this->_events) {
-        this->_log_file << time << ": " << event << std::endl;
+        std::cout << this->_id << ":" << time << ":" << event << std::endl;
     }
 }
 

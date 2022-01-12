@@ -9,7 +9,7 @@
 class Task {
   public:
 
-    static std::chrono::time_point<std::chrono::high_resolution_clock> process_start;
+    static std::chrono::time_point<std::chrono::steady_clock> process_start;
 
     int _id;
     std::counting_semaphore<> _sem;
@@ -18,7 +18,6 @@ class Task {
     int _n_jobs;
 
     std::thread _thread;
-    std::fstream _log_file;
     bool _running = true;
     int _pid = 0;
     float _next_period = 0;
@@ -26,10 +25,9 @@ class Task {
     int _n_jobs_waiting = 0;
     float _result = 1.5;
 
-    std::map<int, std::string> _events;
+    std::map<long, std::string> _events;
 
     Task(int id, int execution_time, int period, int n_jobs);
-    ~Task();
 
     void run_task();
 
