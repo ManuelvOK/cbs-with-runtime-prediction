@@ -15,8 +15,6 @@ using namespace std::chrono_literals;
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 using duration = typename std::chrono::nanoseconds;
 
-time_point Task::process_start;
-
 static time_point thread_now();
 
 #define gettid() syscall(__NR_gettid)
@@ -108,6 +106,8 @@ void Task::run_task() {
     ret = sched_setattr(0, &attr, flags);
     if (ret < 0) {
         perror("sched_setattr");
+        std::cerr << "runtime: " << attr.sched_runtime << std::endl;
+        std::cerr << "period: " << attr.sched_period << std::endl;
         exit(-1);
     }
 
@@ -119,8 +119,6 @@ void Task::run_task() {
             break;
         }
         this->run_job();
-        this->_next_job++;
-        this->_n_jobs_waiting--;
     }
 }
 
@@ -137,14 +135,18 @@ void Task::run_job() {
     event << "b " << t_begin.time_since_epoch() / 1us << " " << job._id;
     this->_events.push_back(event.str());
 
-    this->_result = 1.5;
-    for (int i = 0; i < job._execution_time / 1us * 10; ++i) {
-        this->_result *= std::exp(this->_result * std::exp(this->_result * std::exp(this->_result)));
+    time_point thread_end = thread_begin + job._execution_time - 5us;
+    while (thread_now() < thread_end) {
+        /* spin */
     }
 
-    t_end = std::chrono::steady_clock::now();
-    time_point thread_end = thread_now();
+    //this->_result = 1.5;
+    //for (int i = 0; i < job._execution_time / 1us * 10; ++i) {
+    //    this->_result *= std::exp(this->_result * std::exp(this->_result * std::exp(this->_result)));
+    //}
 
+    t_end = std::chrono::steady_clock::now();
+    thread_end = thread_now();
     event = std::stringstream("");
     event << "e " << t_end.time_since_epoch() / 1us << " " << job._id
           << " " << (thread_end - thread_begin) / 1us;

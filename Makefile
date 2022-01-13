@@ -45,7 +45,7 @@ sure: clean
 
 .PHONY: run
 run: all
-	@$(TARGET)
+	@$(TARGET) $(INPUT_FILE)
 
 tags: $(SRCSCC)
 	$(CXX) $(CXXFLAGSTAGS) $(CXXFLAGS) -M $(SRCSCC) | sed -e 's/[\\ ]/\n/g' | \
@@ -57,7 +57,7 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 
 .PHONY: trace
 trace: all
-	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) > out.log
+	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) $(INPUT_FILE) > out.log
 
 .PHONY: report
 report: trace

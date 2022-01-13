@@ -19,7 +19,112 @@ using namespace std::chrono_literals;
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 using duration = typename std::chrono::nanoseconds;
 
-int main (void) {
+struct Model {
+    std::map<int, Task*> _tasks;
+    std::vector<Job> _jobs;
+    int _n_cores = 1;
+
+    time_point _start = time_point(0us);
+
+    void add_task(Task *task) {
+        this->_tasks[task->_id] = task;
+    }
+
+    void calculate_deadlines() {
+        std::map<int, std::vector<Job *>> tasks_jobs;
+        for (Job &j: this->_jobs) {
+            tasks_jobs[j._task_id].push_back(&j);
+        }
+        time_point zero(0us);
+        for (auto &[task_id, jobs]: tasks_jobs) {
+            if (not this->_tasks.contains(task_id)) {
+                std::cerr << "Input Error: unresolvable task id: " << task_id << std::endl;
+                exit(EXIT_FAILURE);
+            }
+            Task *task = this->_tasks[task_id];
+            int i = 1;
+            for (Job *job: jobs) {
+                job->_deadline = zero + (task->_period * i);
+                //std::cerr << "calculate job " << i << " of task " << task_id << ". submission: "
+                //          << job->_submission_time.time_since_epoch() / 1us << ". deadline: "
+                //          << job->_deadline.time_since_epoch() / 1us << ". execution_time: "
+                //          << job->_execution_time / 1us << std::endl;
+                ++i;
+            }
+        }
+    }
+
+    void set_start_time(time_point start) {
+        this->_start = start;
+        for (Job &job: this->_jobs) {
+            job._deadline += start.time_since_epoch();
+            job._submission_time += start.time_since_epoch();
+        }
+    }
+
+    void sort_jobs() {
+        std::sort(this->_jobs.begin(), this->_jobs.end(),
+                  [](const Job &a, const Job &b){
+                      return a._submission_time < b._submission_time;
+                  });
+    }
+};
+
+static Job parse_job(std::stringstream *ss) {
+    int id;
+    int execution_time;
+    int submission_time;
+    int task_id;
+    *ss >> id >> execution_time >> submission_time >> task_id;
+    return Job(id, execution_time * 1us, time_point{0us}, time_point{submission_time * 1us},
+               task_id);
+}
+
+static Task *parse_task(std::stringstream *ss) {
+    int id;
+    int execution_time;
+    int period;
+    *ss >> id >> execution_time >> period;
+    return new Task(id, execution_time * 1us, period * 1us);
+}
+
+static void parse_line(std::string line, Model *model) {
+    std::stringstream ss(line);
+    char type = ' ';
+    /* first char in each line specifies type of line to parse */
+    ss >> type;
+    switch (type) {
+        break; case 'c': ss >> model->_n_cores;
+        break; case 'j': model->_jobs.push_back(parse_job(&ss));
+        break; case 'S': model->add_task(parse_task(&ss));
+        break; case ' ':
+        break; case 0:
+        break; case '#':
+        break; default: std::cerr << "Parse error: \"" << type << "\" is not a proper type."
+                                  << std::endl;
+    }
+}
+
+static struct Model parse_input(std::string path) {
+    std::ifstream input_file(path);
+    if (not input_file.is_open()) {
+        std::cerr << "Could not open file: " << path << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    Model model;
+    std::string line;
+    while (std::getline(input_file, line)) {
+        parse_line(line, &model);
+    }
+    input_file.close();
+
+    model.calculate_deadlines();
+
+    return model;
+}
+
+int main(int argc, char *argv[]) {
     /* put the job spawning onto CPU 1 */
     cpu_set_t set;
     CPU_SET(1,&set);
@@ -31,66 +136,55 @@ int main (void) {
         exit(-1);
     }
 
-    time_point start = std::chrono::steady_clock::now();
-    Task::process_start = start;
-    /* initialise tasks */
-    std::vector<Task *> tasks;
-    tasks.emplace_back(new Task{0, 100us, 400us});
-    tasks.emplace_back(new Task{1, 150us, 600us});
+    if (argc <= 1) {
+        std::cerr << "no input file provided. Exiting." << std::endl;
+        exit(1);
+    }
+
+    Model model = parse_input(argv[1]);
+
+    /* Allow tasks to initialise */
+    std::this_thread::sleep_for(1ms);
+
+    /* wait at least one period for every task */
+    duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
+                                             [](std::pair<int, Task *> a, std::pair<int, Task *> b) {
+                                                return a.second->_period < b.second->_period;
+                                             })->second->_period;
+    model.set_start_time(std::chrono::steady_clock::now() + initial_wait);
+
+    //std::cerr << "start: " << model._start.time_since_epoch() / 1us << std::endl;
 
     std::map<int, std::vector<std::string>> events;
 
-    std::this_thread::sleep_for(1us);
-
-    start = std::chrono::steady_clock::now();
-    std::cerr << "start: " << start.time_since_epoch().count() << std::endl;
-
-    for (Task *t: tasks) {
-        t->_next_period = start;
-    }
-
     /* spawn jobs */
-    time_point now = start;
-    for (int i = 0; i < 50; ++i) {
-        /* find next task to spawn job */
-        Task *next_task = *std::min_element(tasks.begin(), tasks.end(),
-            [](Task *a, Task *b) {
-                if (not a->_running) {
-                    return false;
-                }
-                return a->_next_period < b->_next_period;
-            }
-        );
+    model.sort_jobs();
+    time_point now = std::chrono::steady_clock::now();
+    for (Job &job: model._jobs) {
 
-        /* break if all tasks finished */
-        if (not next_task->_running) {
-            break;
+        if (job._submission_time - now > 1ms) {
+            //std::cerr << "sleep_until " << job._submission_time.time_since_epoch() / 1us << std::endl;
+            std::this_thread::sleep_until(job._submission_time - 1ms);
+            //std::cerr << "slept. Its now " << std::chrono::steady_clock::now().time_since_epoch() / 1us << std::endl;
         }
-
         /* sleep if next spawn is in future */
-        duration time_to_next_spawn = next_task->_next_period - now;
-        if (time_to_next_spawn > 1ns) {
-            std::this_thread::sleep_until(next_task->_next_period);
+        while (job._submission_time > now) {
+            now = std::chrono::steady_clock::now();
         }
 
         /* spawn job */
-        now = std::chrono::steady_clock::now();
-        int job_id = next_task->_next_job + next_task->_n_jobs_waiting;
-        duration job_execution_time = next_task->_execution_time;
-        time_point job_deadline = now + next_task->_period;
-
+        Task *task = model._tasks[job._task_id];
         std::stringstream event;
-        event << "s " << now.time_since_epoch() / 1us << " " << job_id
-              << " " << job_deadline.time_since_epoch() / 1us;
-        events[next_task->_id].push_back(event.str());
-        next_task->_next_period += next_task->_period;
-        next_task->_n_jobs_waiting++;
+        event << "s " << now.time_since_epoch() / 1us << " " << job._id
+              << " " << job._deadline.time_since_epoch() / 1us;
+              //<< " " << job._submission_time.time_since_epoch() / 1us;
+        events[task->_id].push_back(event.str());
 
-        next_task->_jobs.emplace(job_id, job_execution_time, job_deadline);
-        next_task->_sem.release();
+        task->_jobs.push(job);
+        task->_sem.release();
     }
 
-    for (Task *task: tasks) {
+    for (auto &[_, task]: model._tasks) {
         task->_sem.release();
         task->join();
     }
@@ -101,7 +195,7 @@ int main (void) {
         }
     }
 
-    for (Task *t: tasks) {
+    for (auto &[_, t]: model._tasks) {
         t->write_back_events();
         delete t;
     }

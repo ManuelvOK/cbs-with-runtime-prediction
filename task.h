@@ -13,13 +13,12 @@ struct Job {
     int _id;
     duration _execution_time;
     time_point _deadline;
+    time_point _submission_time;
+    int _task_id;
 };
 
 class Task {
   public:
-
-    static time_point process_start;
-
     int _id;
     std::counting_semaphore<> _sem;
     duration _execution_time;
@@ -28,9 +27,6 @@ class Task {
     std::thread _thread;
     bool _running = true;
     int _pid = 0;
-    time_point _next_period;
-    int _next_job = 0;
-    int _n_jobs_waiting = 0;
     double _result = 1.5;
 
     std::vector<std::string> _events;
