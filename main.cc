@@ -102,6 +102,7 @@ static void parse_line(std::string line, Model *model) {
         break; case '#':
         break; default: std::cerr << "Parse error: \"" << type << "\" is not a proper type."
                                   << std::endl;
+                        exit(EXIT_FAILURE);
     }
 }
 
@@ -125,6 +126,11 @@ static struct Model parse_input(std::string path) {
 }
 
 int main(int argc, char *argv[]) {
+    std::map<int, std::vector<std::string>> events;
+
+    std::stringstream event;
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start main";
+    events[-1].push_back(event.str());
     /* put the job spawning onto CPU 1 */
     cpu_set_t set;
     CPU_SET(1,&set);
@@ -135,6 +141,9 @@ int main(int argc, char *argv[]) {
         perror("sched_setaffinity");
         exit(-1);
     }
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU1";
+    events[-1].push_back(event.str());
 
     if (argc <= 1) {
         std::cerr << "no input file provided. Exiting." << std::endl;
@@ -143,19 +152,28 @@ int main(int argc, char *argv[]) {
 
     Model model = parse_input(argv[1]);
 
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Input parsed";
+    events[-1].push_back(event.str());
+
     /* Allow tasks to initialise */
     std::this_thread::sleep_for(1ms);
+
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Waited 1ms to allow task initialisation";
+    events[-1].push_back(event.str());
 
     /* wait at least one period for every task */
     duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
                                              [](std::pair<int, Task *> a, std::pair<int, Task *> b) {
                                                 return a.second->_period < b.second->_period;
                                              })->second->_period;
-    model.set_start_time(std::chrono::steady_clock::now() + initial_wait);
+    model.set_start_time(std::chrono::steady_clock::now() + initial_wait * 2);
 
     //std::cerr << "start: " << model._start.time_since_epoch() / 1us << std::endl;
-
-    std::map<int, std::vector<std::string>> events;
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": first job spawn at " << model._start.time_since_epoch() / 1us;
+    events[-1].push_back(event.str());
 
     /* spawn jobs */
     model.sort_jobs();
@@ -167,14 +185,14 @@ int main(int argc, char *argv[]) {
             std::this_thread::sleep_until(job._submission_time - 1ms);
             //std::cerr << "slept. Its now " << std::chrono::steady_clock::now().time_since_epoch() / 1us << std::endl;
         }
-        /* sleep if next spawn is in future */
+        /* busy wait if next spawn is in future */
         while (job._submission_time > now) {
             now = std::chrono::steady_clock::now();
         }
 
         /* spawn job */
         Task *task = model._tasks[job._task_id];
-        std::stringstream event;
+        event = std::stringstream();
         event << "s " << now.time_since_epoch() / 1us << " " << job._id
               << " " << job._deadline.time_since_epoch() / 1us;
               //<< " " << job._submission_time.time_since_epoch() / 1us;

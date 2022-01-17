@@ -74,10 +74,17 @@ struct sched_attr {
 
 Task::Task(int id, duration execution_time, duration period)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
+        std::stringstream event;
+        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Task init";
+        this->_events.push_back(event.str());
         this->_thread = std::thread(&Task::run_task, this);
 }
 
 void Task::run_task() {
+    std::stringstream event;
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": run_task";
+    this->_events.push_back(event.str());
+
     this->_pid = gettid();
 
     /* execute all tasks on CPU 0 */
@@ -89,6 +96,10 @@ void Task::run_task() {
         perror("sched_setaffinity");
         exit(-1);
     }
+
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU0";
+    this->_events.push_back(event.str());
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -111,9 +122,20 @@ void Task::run_task() {
         exit(-1);
     }
 
+    event = std::stringstream();
+    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start real-time";
+    this->_events.push_back(event.str());
+    sched_yield();
+
     /* run jobs if there are some */
     while (true) {
+        event = std::stringstream();
+        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": aquire lock";
+        this->_events.push_back(event.str());
         this->_sem.acquire();
+        event = std::stringstream();
+        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": lock aquired";
+        this->_events.push_back(event.str());
         if (this->_jobs.empty()) {
             this->_running = false;
             break;

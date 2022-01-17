@@ -52,7 +52,8 @@ class Task:
         for job in self.jobs.values():
             job_events.append((job.begin, f"Job {job.id} started execution."))
             job_events.append((job.end, f"Job {job.id} finished execution."
-                                        f" Execution_time: {job.execution_time}"))
+                                        f" Execution_time: {job.execution_time}"
+                                        f" Deadline: {job.deadline % 10000000}"))
             job_events.append((job.submission_time, f"Job {job.id} submitted."
                                                     f" Deadline: {job.deadline % 10000000}"))
 
@@ -88,6 +89,10 @@ def parse_log_file(log_file: str) -> Dict[int, Task]:
 
             # log does not belong to task (id is -1)
             if task_id < 0:
+                continue
+
+            # ignore comments
+            if key[0] == "#":
                 continue
 
             # create new task if this is the first log for it
@@ -170,14 +175,15 @@ def main():
 
     tasks = parse_log_file(args.log_file)
 
-    parse_trace_file(args.trace_report, tasks)
-
-    for task in tasks.values():
-        task.sync_events()
+    if args.trace_report != "_":
+        parse_trace_file(args.trace_report, tasks)
+        for task in tasks.values():
+            task.sync_events()
 
     with open(args.output, "w+") as f:
         for task in tasks.values():
             task.print_jobs(f)
+            # task.print_events()
 
 
 if __name__ == "__main__":

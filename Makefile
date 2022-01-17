@@ -45,7 +45,7 @@ sure: clean
 
 .PHONY: run
 run: all
-	@$(TARGET) $(INPUT_FILE)
+	@$(TARGET) $(INPUT_FILE) > $(OUTPUT_FILE)
 
 tags: $(SRCSCC)
 	$(CXX) $(CXXFLAGSTAGS) $(CXXFLAGS) -M $(SRCSCC) | sed -e 's/[\\ ]/\n/g' | \
@@ -57,12 +57,16 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 
 .PHONY: trace
 trace: all
-	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) $(INPUT_FILE) > out.log
+	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) $(INPUT_FILE) > $(OUTPUT_FILE)
 
 .PHONY: report
 report: trace
-	trace-cmd report | grep "$(TARGETNAME)" > trace_report
-	./eval.py trace_report out.log -o $(REPORT_FILE)
+	trace-cmd report | grep "$(TARGETNAME)" > $(TRACE_FILE)
+	./eval.py $(TRACE_FILE) $(OUTPUT_FILE) -o $(REPORT_FILE)
+
+.PHONY: nt-report
+nt-report: run
+	./eval.py _ $(OUTPUT_FILE) -o $(REPORT_FILE)
 
 .PHONY: gtrace
 gtrace: trace show
