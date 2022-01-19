@@ -19,7 +19,7 @@ CXXFLAGS     := -std=c++2a -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-func
 DEPFLAGS     += -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
 CXXFLAGSTAGS := -I/home/morion/.vim/tags
 
-DYN_LIBS     := -pthread
+DYN_LIBS     := -pthread -llttng-ust -ldl
 
 .PHONY: all
 all: | $(BUILDDIR)/ $(DEPDIR)/
@@ -45,7 +45,9 @@ sure: clean
 
 .PHONY: run
 run: all
-	@$(TARGET) $(INPUT_FILE) > $(OUTPUT_FILE)
+	@$(TARGET) $(INPUT_FILE)
+
+$(BUILDDIR)/sched_sim_tracepoint.o: CXXFLAGS += -I.
 
 tags: $(SRCSCC)
 	$(CXX) $(CXXFLAGSTAGS) $(CXXFLAGS) -M $(SRCSCC) | sed -e 's/[\\ ]/\n/g' | \
@@ -57,23 +59,18 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 
 .PHONY: trace
 trace: all
-	sudo trace-cmd record -e sched_switch -C mono_raw $(TARGET) $(INPUT_FILE) > $(OUTPUT_FILE)
+	sudo lttng create kernel-session --output=$(TRACE_FILE)
+	sudo lttng enable-event --kernel "sched*"
+	sudo lttng enable-event --userspace sched_sim:custom
+	sudo lttng start
+	sudo $(TARGET) $(INPUT_FILE)
+	sudo lttng destroy
 
 .PHONY: report
 report: trace
-	trace-cmd report | grep "$(TARGETNAME)" > $(TRACE_FILE)
-	./eval.py $(TRACE_FILE) $(OUTPUT_FILE) -o $(REPORT_FILE)
-
-.PHONY: nt-report
-nt-report: run
-	./eval.py _ $(OUTPUT_FILE) -o $(REPORT_FILE)
-
-.PHONY: gtrace
-gtrace: trace show
-
-.PHONY: show
-show: trace.dat
-	kernelshark $^
+	sudo chmod o+rwx $(TRACE_FILE) -R
+	babeltrace2 $(TRACE_FILE) | grep "$(TARGETNAME)" > $(TRACE_FILE)_filtered
+	#./eval.py $(TRACE_FILE)_filtered -o $(REPORT_FILE)
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate

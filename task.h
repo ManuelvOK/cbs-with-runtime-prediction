@@ -29,7 +29,6 @@ class Task {
     int _pid = 0;
     double _result = 1.5;
 
-    std::vector<std::string> _events;
     std::queue<struct Job> _jobs;
 
     Task(int id, duration execution_time, duration period);
@@ -39,7 +38,5 @@ class Task {
     void run_job();
 
     void join();
-
-    void write_back_events();
 };
 

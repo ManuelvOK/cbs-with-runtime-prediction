@@ -11,6 +11,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "sched_sim_tracepoint.h"
+
 using namespace std::chrono_literals;
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 using duration = typename std::chrono::nanoseconds;
@@ -70,20 +72,22 @@ struct sched_attr {
     __u64 sched_period;
 };
 
-
+static void add_trace(std::stringstream &event) {
+    lttng_ust_tracepoint(sched_sim, custom, event.str().data());
+}
 
 Task::Task(int id, duration execution_time, duration period)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
         std::stringstream event;
-        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Task init";
-        this->_events.push_back(event.str());
+        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Task init";
+        add_trace(event);
         this->_thread = std::thread(&Task::run_task, this);
 }
 
 void Task::run_task() {
     std::stringstream event;
-    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": run_task";
-    this->_events.push_back(event.str());
+    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": run_task";
+    add_trace(event);
 
     this->_pid = gettid();
 
@@ -98,8 +102,8 @@ void Task::run_task() {
     }
 
     event = std::stringstream();
-    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU0";
-    this->_events.push_back(event.str());
+    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU0";
+    add_trace(event);
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -123,19 +127,19 @@ void Task::run_task() {
     }
 
     event = std::stringstream();
-    event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start real-time";
-    this->_events.push_back(event.str());
+    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start real-time";
+    add_trace(event);
     sched_yield();
 
     /* run jobs if there are some */
     while (true) {
         event = std::stringstream();
-        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": aquire lock";
-        this->_events.push_back(event.str());
+        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": aquire lock";
+        add_trace(event);
         this->_sem.acquire();
         event = std::stringstream();
-        event << "# " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": lock aquired";
-        this->_events.push_back(event.str());
+        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": lock aquired";
+        add_trace(event);
         if (this->_jobs.empty()) {
             this->_running = false;
             break;
@@ -154,8 +158,8 @@ void Task::run_job() {
     time_point thread_begin = thread_now();
 
     std::stringstream event;
-    event << "b " << t_begin.time_since_epoch() / 1us << " " << job._id;
-    this->_events.push_back(event.str());
+    event << this->_id << " b " << t_begin.time_since_epoch() / 1us << " " << job._id;
+    add_trace(event);
 
     time_point thread_end = thread_begin + job._execution_time - 5us;
     while (thread_now() < thread_end) {
@@ -170,20 +174,13 @@ void Task::run_job() {
     t_end = std::chrono::steady_clock::now();
     thread_end = thread_now();
     event = std::stringstream("");
-    event << "e " << t_end.time_since_epoch() / 1us << " " << job._id
+    event << this->_id << " e " << t_end.time_since_epoch() / 1us << " " << job._id
           << " " << (thread_end - thread_begin) / 1us;
-    this->_events.push_back(event.str());
+    add_trace(event);
 }
 
 void Task::join() {
     this->_thread.join();
-}
-
-void Task::write_back_events() {
-    std::cout << this->_id << " p " << this->_pid << std::endl;
-    for (std::string event: this->_events) {
-        std::cout << this->_id << " " << event << std::endl;
-    }
 }
 
 time_point thread_now() {
