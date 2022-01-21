@@ -16,7 +16,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
         char *, my_string_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_string(my_string_field, my_string_arg)
+        lttng_ust_field_string(my_string, my_string_arg)
     )
 )
 
@@ -54,7 +54,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, cpu_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, cpu_field, cpu_arg)
+        lttng_ust_field_integer(char, cpu, cpu_arg)
     )
 )
 
@@ -67,9 +67,9 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, deadline_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
-        lttng_ust_field_integer(char, job_field, job_arg)
-        lttng_ust_field_integer(long, deadline_field, deadline_arg)
+        lttng_ust_field_integer(char, task, task_arg)
+        lttng_ust_field_integer(char, job, job_arg)
+        lttng_ust_field_integer(long, deadline, deadline_arg)
     )
 )
 
@@ -81,8 +81,8 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, pid_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, tid_field, tid_arg)
-        lttng_ust_field_integer(char, pid_field, pid_arg)
+        lttng_ust_field_integer(char, tid, tid_arg)
+        lttng_ust_field_integer(int, pid, pid_arg)
     )
 )
 
@@ -94,8 +94,8 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, cpu_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
-        lttng_ust_field_integer(char, cpu_field, cpu_arg)
+        lttng_ust_field_integer(char, task, task_arg)
+        lttng_ust_field_integer(char, cpu, cpu_arg)
     )
 )
 
@@ -106,7 +106,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, task_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
+        lttng_ust_field_integer(char, task, task_arg)
     )
 )
 
@@ -117,7 +117,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, task_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
+        lttng_ust_field_integer(char, task, task_arg)
     )
 )
 
@@ -128,7 +128,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, task_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
+        lttng_ust_field_integer(char, task, task_arg)
     )
 )
 
@@ -140,8 +140,8 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, job_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
-        lttng_ust_field_integer(char, job_field, job_arg)
+        lttng_ust_field_integer(char, task, task_arg)
+        lttng_ust_field_integer(char, job, job_arg)
     )
 )
 
@@ -154,9 +154,20 @@ LTTNG_UST_TRACEPOINT_EVENT(
         int, runtime_arg
     ),
     LTTNG_UST_TP_FIELDS(
-        lttng_ust_field_integer(char, task_field, task_arg)
-        lttng_ust_field_integer(char, job_field, job_arg)
-        lttng_ust_field_integer(int, runtime_field, runtime_arg)
+        lttng_ust_field_integer(char, task, task_arg)
+        lttng_ust_field_integer(char, job, job_arg)
+        lttng_ust_field_integer(int, runtime, runtime_arg)
+    )
+)
+
+LTTNG_UST_TRACEPOINT_EVENT(
+    sched_sim,
+    finished_task,
+    LTTNG_UST_TP_ARGS(
+        int, task_arg
+    ),
+    LTTNG_UST_TP_FIELDS(
+        lttng_ust_field_integer(char, task, task_arg)
     )
 )
 

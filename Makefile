@@ -70,7 +70,7 @@ trace: all
 report: trace
 	sudo chmod o+rwx $(TRACE_FILE) -R
 	babeltrace2 $(TRACE_FILE) | grep "$(TARGETNAME)" > $(TRACE_FILE)_filtered
-	#./eval.py $(TRACE_FILE)_filtered -o $(REPORT_FILE)
+	./eval.py $(TRACE_FILE)_filtered -o $(REPORT_FILE)
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate

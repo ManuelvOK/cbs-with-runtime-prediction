@@ -125,6 +125,7 @@ void Task::run_task() {
 
         if (this->_jobs.empty()) {
             this->_running = false;
+            lttng_ust_tracepoint(sched_sim, finished_task, this->_id);
             break;
         }
         this->run_job();
@@ -145,7 +146,7 @@ void Task::run_job() {
         /* spin */
     }
 
-    lttng_ust_tracepoint(sched_sim, end_job, this->_id, job._id, (thread_now() - thread_begin) / 1us);
+    lttng_ust_tracepoint(sched_sim, end_job, this->_id, job._id, (thread_now() - thread_begin) / 1ns);
 }
 
 void Task::join() {

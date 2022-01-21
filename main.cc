@@ -152,16 +152,16 @@ int main(int argc, char *argv[]) {
     lttng_ust_tracepoint(sched_sim, input_parsed);
 
     /* Allow tasks to initialise */
-    std::this_thread::sleep_for(1ms);
+    std::this_thread::sleep_for(3ms);
 
     lttng_ust_tracepoint(sched_sim, waited_for_task_init);
 
     /* wait at least one period for every task */
-    duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
-                                             [](std::pair<int, Task *> a, std::pair<int, Task *> b) {
-                                                return a.second->_period < b.second->_period;
-                                             })->second->_period;
-    model.set_start_time(std::chrono::steady_clock::now() + initial_wait * 2);
+    //duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
+    //                                         [](std::pair<int, Task *> a, std::pair<int, Task *> b) {
+    //                                            return a.second->_period < b.second->_period;
+    //                                         })->second->_period;
+    model.set_start_time(std::chrono::steady_clock::now());
 
     /* spawn jobs */
     model.sort_jobs();
@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
 
         /* spawn job */
         Task *task = model._tasks[job._task_id];
-        lttng_ust_tracepoint(sched_sim, job_spawn, task->_id, job._id, job._deadline.time_since_epoch() / 1us);
+        lttng_ust_tracepoint(sched_sim, job_spawn, task->_id, job._id, (job._deadline - now.time_since_epoch()).time_since_epoch() / 1ns);
 
         task->_jobs.push(job);
         task->_sem.release();
