@@ -126,14 +126,8 @@ static struct Model parse_input(std::string path) {
     return model;
 }
 
-static void add_trace(std::stringstream &event) {
-    lttng_ust_tracepoint(sched_sim, custom, event.str().data());
-}
-
 int main(int argc, char *argv[]) {
-    std::stringstream event;
-    event << "-1 # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start main";
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, start_main);
 
     /* put the job spawning onto CPU 1 */
     cpu_set_t set;
@@ -145,9 +139,8 @@ int main(int argc, char *argv[]) {
         perror("sched_setaffinity");
         exit(-1);
     }
-    event = std::stringstream();
-    event << "-1 # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU1";
-    add_trace(event);
+
+    lttng_ust_tracepoint(sched_sim, migrated, 1);
 
     if (argc <= 1) {
         std::cerr << "no input file provided. Exiting." << std::endl;
@@ -156,16 +149,12 @@ int main(int argc, char *argv[]) {
 
     Model model = parse_input(argv[1]);
 
-    event = std::stringstream();
-    event << "-1 # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Input parsed";
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, input_parsed);
 
     /* Allow tasks to initialise */
     std::this_thread::sleep_for(1ms);
 
-    event = std::stringstream();
-    event << "-1 # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Waited 1ms to allow task initialisation";
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, waited_for_task_init);
 
     /* wait at least one period for every task */
     duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
@@ -173,11 +162,6 @@ int main(int argc, char *argv[]) {
                                                 return a.second->_period < b.second->_period;
                                              })->second->_period;
     model.set_start_time(std::chrono::steady_clock::now() + initial_wait * 2);
-
-    //std::cerr << "start: " << model._start.time_since_epoch() / 1us << std::endl;
-    event = std::stringstream();
-    event << "-1 # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": first job spawn at " << model._start.time_since_epoch() / 1us;
-    add_trace(event);
 
     /* spawn jobs */
     model.sort_jobs();
@@ -196,11 +180,7 @@ int main(int argc, char *argv[]) {
 
         /* spawn job */
         Task *task = model._tasks[job._task_id];
-        event = std::stringstream();
-        event << task->_id << "s " << now.time_since_epoch() / 1us << " " << job._id
-              << " " << job._deadline.time_since_epoch() / 1us;
-              //<< " " << job._submission_time.time_since_epoch() / 1us;
-        add_trace(event);
+        lttng_ust_tracepoint(sched_sim, job_spawn, task->_id, job._id, job._deadline.time_since_epoch() / 1us);
 
         task->_jobs.push(job);
         task->_sem.release();

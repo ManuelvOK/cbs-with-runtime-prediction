@@ -61,7 +61,7 @@ $(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 trace: all
 	sudo lttng create kernel-session --output=$(TRACE_FILE)
 	sudo lttng enable-event --kernel "sched*"
-	sudo lttng enable-event --userspace sched_sim:custom
+	sudo lttng enable-event --userspace "sched_sim:*"
 	sudo lttng start
 	sudo $(TARGET) $(INPUT_FILE)
 	sudo lttng destroy

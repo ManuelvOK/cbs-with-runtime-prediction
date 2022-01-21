@@ -72,24 +72,14 @@ struct sched_attr {
     __u64 sched_period;
 };
 
-static void add_trace(std::stringstream &event) {
-    lttng_ust_tracepoint(sched_sim, custom, event.str().data());
-}
-
 Task::Task(int id, duration execution_time, duration period)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
-        std::stringstream event;
-        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": Task init";
-        add_trace(event);
         this->_thread = std::thread(&Task::run_task, this);
 }
 
 void Task::run_task() {
-    std::stringstream event;
-    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": run_task";
-    add_trace(event);
-
     this->_pid = gettid();
+    lttng_ust_tracepoint(sched_sim, init_task, this->_id, this->_pid);
 
     /* execute all tasks on CPU 0 */
     cpu_set_t set;
@@ -101,9 +91,7 @@ void Task::run_task() {
         exit(-1);
     }
 
-    event = std::stringstream();
-    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": migrate to CPU0";
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, migrated_task, this->_id, 0);
 
     /* configure deadline scheduling */
     struct sched_attr attr;
@@ -126,20 +114,15 @@ void Task::run_task() {
         exit(-1);
     }
 
-    event = std::stringstream();
-    event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": start real-time";
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, started_real_time_task, this->_id);
     sched_yield();
 
     /* run jobs if there are some */
     while (true) {
-        event = std::stringstream();
-        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": aquire lock";
-        add_trace(event);
+        lttng_ust_tracepoint(sched_sim, acquire_sem, this->_id);
         this->_sem.acquire();
-        event = std::stringstream();
-        event << this->_id << " # " << std::chrono::steady_clock::now().time_since_epoch() / 1us << ": lock aquired";
-        add_trace(event);
+        lttng_ust_tracepoint(sched_sim, acquired_sem, this->_id);
+
         if (this->_jobs.empty()) {
             this->_running = false;
             break;
@@ -153,30 +136,16 @@ void Task::run_job() {
     Job job = this->_jobs.front();
     this->_jobs.pop();
 
-    time_point t_begin = std::chrono::steady_clock::now();
-    time_point t_end = t_begin;
     time_point thread_begin = thread_now();
 
-    std::stringstream event;
-    event << this->_id << " b " << t_begin.time_since_epoch() / 1us << " " << job._id;
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, begin_job, this->_id, job._id);
 
     time_point thread_end = thread_begin + job._execution_time - 5us;
     while (thread_now() < thread_end) {
         /* spin */
     }
 
-    //this->_result = 1.5;
-    //for (int i = 0; i < job._execution_time / 1us * 10; ++i) {
-    //    this->_result *= std::exp(this->_result * std::exp(this->_result * std::exp(this->_result)));
-    //}
-
-    t_end = std::chrono::steady_clock::now();
-    thread_end = thread_now();
-    event = std::stringstream("");
-    event << this->_id << " e " << t_end.time_since_epoch() / 1us << " " << job._id
-          << " " << (thread_end - thread_begin) / 1us;
-    add_trace(event);
+    lttng_ust_tracepoint(sched_sim, end_job, this->_id, job._id, (thread_now() - thread_begin) / 1us);
 }
 
 void Task::join() {
