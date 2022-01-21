@@ -13,8 +13,9 @@
 #include <thread>
 #include <vector>
 
-#include "task.h"
+#include "rt.h"
 #include "sched_sim_tracepoint.h"
+#include "task.h"
 
 using namespace std::chrono_literals;
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
@@ -141,6 +142,23 @@ int main(int argc, char *argv[]) {
     }
 
     lttng_ust_tracepoint(sched_sim, migrated, 1);
+
+    /* configure deadline scheduling */
+    struct sched_attr attr;
+    unsigned int flags = 0;
+
+    attr.size = sizeof(attr);
+    attr.sched_flags = 0;
+    attr.sched_nice = 0;
+    attr.sched_priority = SCHED_FIFO;
+
+    attr.sched_policy = SCHED_FIFO;
+
+    ret = sched_setattr(0, &attr, flags);
+    if (ret < 0) {
+        perror("sched_setattr");
+        exit(-1);
+    }
 
     if (argc <= 1) {
         std::cerr << "no input file provided. Exiting." << std::endl;
