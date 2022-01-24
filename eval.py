@@ -277,8 +277,8 @@ def main():
 
     tasks = parse_trace_file(args.trace_report)
 
-    for task in tasks.values():
-        task.print_events()
+    # for task in tasks.values():
+    #     task.print_events()
 
     with open(args.output, "w+") as f:
         for task in tasks.values():
