@@ -15,9 +15,12 @@ using duration = typename std::chrono::nanoseconds;
 
 static time_point thread_now();
 
+bool Task::_prediction_enabled;
+
 Task::Task(int id, duration execution_time, duration period)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
         this->_thread = std::thread(&Task::run_task, this);
+        this->_runtimes.push_back(_execution_time / 1ns);
 }
 
 void Task::run_task() {
@@ -76,11 +79,33 @@ void Task::run_task() {
 }
 
 void Task::run_job() {
+    time_point thread_begin = thread_now();
     /* get jobs parameters */
     Job job = this->_jobs.front();
     this->_jobs.pop();
+    if (this->_prediction_enabled) {
+        duration prediction  = this->_predictor.predict(0, 0, this->_runtimes.data(), this->_runtimes.size());
+        if (this->_runtimes.size() == 1) {
+            prediction = this->_execution_time;
+        }
 
-    time_point thread_begin = thread_now();
+        lttng_ust_tracepoint(sched_sim, prediction, this->_id, job._id, prediction / 1ns);
+
+        /* configure deadline scheduling */
+        struct sched_attr attr;
+        sched_getattr(gettid(), &attr, sizeof(attr), 0);
+
+        attr.sched_runtime = prediction / 1ns;
+        attr.sched_runtime = std::min(attr.sched_runtime, __u64(attr.sched_period * 0.9));
+
+        int ret = sched_setattr(0, &attr, 0);
+        if (ret < 0) {
+            perror("sched_setattr");
+            std::cerr << "runtime: " << attr.sched_runtime << std::endl;
+            std::cerr << "period: " << attr.sched_period << std::endl;
+            exit(-1);
+        }
+    }
 
     lttng_ust_tracepoint(sched_sim, begin_job, this->_id, job._id);
 
@@ -89,7 +114,13 @@ void Task::run_job() {
         /* spin */
     }
 
-    lttng_ust_tracepoint(sched_sim, end_job, this->_id, job._id, (thread_now() - thread_begin) / 1ns);
+    auto runtime = thread_now() - thread_begin;
+    this->_runtimes.push_back(runtime / 1ns);
+    if (this->_prediction_enabled) {
+        this->_predictor.train(0, 0, duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::duration<double>{runtime} + 0.5ns));
+    }
+    lttng_ust_tracepoint(sched_sim, end_job, this->_id, job._id, runtime / 1ns);
 }
 
 void Task::join() {

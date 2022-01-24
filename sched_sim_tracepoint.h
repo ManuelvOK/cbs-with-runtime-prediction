@@ -171,6 +171,21 @@ LTTNG_UST_TRACEPOINT_EVENT(
     )
 )
 
+LTTNG_UST_TRACEPOINT_EVENT(
+    sched_sim,
+    prediction,
+    LTTNG_UST_TP_ARGS(
+        int, task_arg,
+        int, job_arg,
+        int, prediction_arg
+    ),
+    LTTNG_UST_TP_FIELDS(
+        lttng_ust_field_integer(char, task, task_arg)
+        lttng_ust_field_integer(char, job, job_arg)
+        lttng_ust_field_integer(int, prediction, prediction_arg)
+    )
+)
+
 
 #endif /* _HELLO_TP_H */
 

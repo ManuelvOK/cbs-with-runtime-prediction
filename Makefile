@@ -21,8 +21,9 @@ OBJS    := $(patsubst %.cc, $(BUILDDIR)/%.o, $(SRCSCC))
 DEPS    := $(patsubst %.cc, $(DEPDIR)/%.d, $(SRCSCC))
 
 CXXFLAGS     := -std=c++2a -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-functions -O0
+CXXFLAGS     += -I$(INCDIR) -I$(LIBINCDIR)
 DEPFLAGS     += -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
-CXXFLAGSTAGS := -I/home/morion/.vim/tags -I$(INCDIR) -I$(LIBINCDIR)
+CXXFLAGSTAGS := -I/home/morion/.vim/tags -I$(INCDIR)
 
 PREDICTOR_LIB     := $(LIBDIR)/libpredictor.so
 PREDICTOR_INCDIR  := $(LIBINCDIR)/predictor
@@ -31,7 +32,9 @@ PREDICTOR_HEADERS := $(PREDICTOR_EXTDIR)/predictor
 
 LIBRARIES   := $(PREDICTOR_LIB)
 LIB_HEADERS := $(PREDICTOR_INCDIR)
-DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor
+DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor -Wl,-rpath=$(LIBDIR)
+
+PREDICTION_ENABLED ?= 0
 
 
 .PHONY: all
@@ -60,7 +63,7 @@ sure: clean
 
 .PHONY: run
 run: all
-	@$(TARGET) $(INPUT_FILE)
+	@$(TARGET) $(INPUT_FILE) $(PREDICTION_ENABLED)
 
 $(BUILDDIR)/sched_sim_tracepoint.o: CXXFLAGS += -I.
 
@@ -88,7 +91,7 @@ trace: all
 	sudo lttng enable-event --kernel "sched*"
 	sudo lttng enable-event --userspace "sched_sim:*"
 	sudo lttng start
-	sudo $(TARGET) $(INPUT_FILE)
+	sudo $(TARGET) $(INPUT_FILE) $(PREDICTION_ENABLED)
 	sudo lttng destroy
 
 .PHONY: report

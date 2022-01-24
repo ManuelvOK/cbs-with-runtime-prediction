@@ -165,6 +165,12 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    if (argc > 2 && std::string(argv[2]) == "1") {
+        Task::_prediction_enabled = true;
+    } else {
+        Task::_prediction_enabled = false;
+    }
+
     Model model = parse_input(argv[1]);
 
     lttng_ust_tracepoint(sched_sim, input_parsed);
