@@ -3,3 +3,4 @@ trace_report
 tags
 .d/
 *.log
+distribute.sh
