@@ -1,0 +1,24 @@
+#pragma once
+
+#include <semaphore.h>
+
+namespace std {
+template<int FOO = 0>
+class counting_semaphore {
+    sem_t _sem;
+  public:
+    counting_semaphore(int value) {
+        sem_init(&this->_sem, 0, value);
+    }
+
+    void acquire() {
+        sem_wait(&this->_sem);
+    }
+
+    void release() {
+        sem_post(&this->_sem);
+    }
+};
+}
+
+// vim: ft=cpp
