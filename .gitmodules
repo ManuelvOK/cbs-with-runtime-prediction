@@ -1,0 +1,3 @@
+[submodule "ext/atlas-rt"]
+	path = ext/atlas-rt
+	url = https://github.com/hannesweisbach/atlas-rt
