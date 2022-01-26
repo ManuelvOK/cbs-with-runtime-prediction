@@ -20,7 +20,6 @@ bool Task::_prediction_enabled;
 Task::Task(int id, duration execution_time, duration period)
     : _id(id), _sem(0), _execution_time(execution_time), _period(period) {
         this->_thread = std::thread(&Task::run_task, this);
-        this->_runtimes.push_back(_execution_time / 1ns);
 }
 
 void Task::run_task() {
@@ -84,9 +83,12 @@ void Task::run_job() {
     Job job = this->_jobs.front();
     this->_jobs.pop();
     if (this->_prediction_enabled) {
-        duration prediction  = this->_predictor.predict(0, 0, this->_runtimes.data(), this->_runtimes.size());
-        if (this->_runtimes.size() == 1) {
-            prediction = this->_execution_time;
+        duration prediction  = this->_predictor.predict(0, 0, nullptr, 0);
+        /* first prediction is always 90% of the period. It will most likely not take this time
+         * but we make sure to have get the first measurement asap. */
+        if (not this->_runtimes.size()) {
+            prediction = duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::duration<double>{this->_period} * 0.9);
         }
 
         lttng_ust_tracepoint(sched_sim, prediction, this->_id, job._id, prediction / 1ns);
