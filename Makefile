@@ -38,8 +38,9 @@ PREDICTION_ENABLED ?= 0
 
 
 .PHONY: all
-all: | $(BUILDDIR)/ $(DEPDIR)/
 all: $(TARGET)
+
+$(TARGET): | $(BUILDDIR)/ $(DEPDIR)/
 
 $(DEPS): $(DEPDIR)/
 
@@ -85,20 +86,32 @@ $(PREDICTOR_INCDIR): $(PREDICTOR_EXTDIR) | $(LIBINCDIR)/
 	ln -fs "$(CURDIR)/$</predictor" $@
 
 
-.PHONY: trace
-trace: all
-	sudo lttng create kernel-session --output=$(TRACE_FILE)
+%_out_cbs: %_cbs $(TARGET)
+	sudo lttng create kernel-session --output=$@
 	sudo lttng enable-event --kernel "sched*"
 	sudo lttng enable-event --userspace "sched_sim:*"
 	sudo lttng start
-	sudo $(TARGET) $(INPUT_FILE) $(PREDICTION_ENABLED)
+	sudo $(TARGET) $<
 	sudo lttng destroy
 
-.PHONY: report
-report: trace
-	sudo chmod o+rwx $(TRACE_FILE) -R
-	babeltrace2 $(TRACE_FILE) | grep "$(TARGETNAME)" > $(TRACE_FILE)_filtered
-	./eval.py $(TRACE_FILE)_filtered -o $(REPORT_FILE)
+%_out_cbsp: %_cbsp $(TARGET)
+	sudo lttng create kernel-session --output=$@
+	sudo lttng enable-event --kernel "sched*"
+	sudo lttng enable-event --userspace "sched_sim:*"
+	sudo lttng start
+	sudo $(TARGET) $< 1
+	sudo lttng destroy
+
+%_filtered: %
+	sudo chmod o+rwx $< -R
+	babeltrace2 $< | grep "$(TARGETNAME)" > $@
+
+
+%_eval_cbs: %_out_cbs_filtered
+	./eval.py $< -o $@
+
+%_eval_cbsp: %_out_cbsp_filtered
+	./eval.py $< -o $@
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate
