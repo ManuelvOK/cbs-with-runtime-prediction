@@ -21,15 +21,33 @@ using namespace std::chrono_literals;
 using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 using duration = typename std::chrono::nanoseconds;
 
+struct Job {
+    int _id;
+    duration _execution_time;
+    time_point _deadline;
+    time_point _submission_time;
+    int _task_id;
+};
+
+using SimTask = Task<Job>;
+
+void wait_busily(Job job) {
+    time_point thread_end = thread_now() + job._execution_time;
+    while (thread_now() < thread_end) {
+        /* spin */
+    }
+}
+
 struct Model {
-    std::map<int, Task*> _tasks;
+    std::map<int, SimTask*> _tasks;
     std::vector<Job> _jobs;
     int _n_cores = 1;
+    bool _prediction_enabled = false;
 
     time_point _start = time_point(0us);
 
-    void add_task(Task *task) {
-        this->_tasks[task->_id] = task;
+    void add_task(SimTask *task) {
+        this->_tasks[task->id()] = task;
     }
 
     void calculate_deadlines() {
@@ -43,10 +61,11 @@ struct Model {
                 std::cerr << "Input Error: unresolvable task id: " << task_id << std::endl;
                 exit(EXIT_FAILURE);
             }
-            Task *task = this->_tasks[task_id];
+            SimTask *task = this->_tasks[task_id];
             int i = 1;
             for (Job *job: jobs) {
-                job->_deadline = zero + (task->_period * i);
+                job->_deadline = zero + (task->period() * i);
+                job->_id = i - 1;
                 //std::cerr << "calculate job " << i << " of task " << task_id << ". submission: "
                 //          << job->_submission_time.time_since_epoch() / 1us << ". deadline: "
                 //          << job->_deadline.time_since_epoch() / 1us << ". execution_time: "
@@ -82,12 +101,12 @@ static Job parse_job(std::stringstream *ss) {
                task_id);
 }
 
-static Task *parse_task(std::stringstream *ss) {
+static SimTask *parse_task(std::stringstream *ss, Model *model) {
     int id;
     int execution_time;
     int period;
     *ss >> id >> execution_time >> period;
-    return new Task(id, execution_time * 1us, period * 1us);
+    return new SimTask(id, model->_prediction_enabled, period * 1us, wait_busily);
 }
 
 static void parse_line(std::string line, Model *model) {
@@ -98,7 +117,7 @@ static void parse_line(std::string line, Model *model) {
     switch (type) {
         break; case 'c': ss >> model->_n_cores;
         break; case 'j': model->_jobs.push_back(parse_job(&ss));
-        break; case 'S': model->add_task(parse_task(&ss));
+        break; case 'S': model->add_task(parse_task(&ss, model));
         break; case ' ':
         break; case 0:
         break; case '#':
@@ -108,7 +127,7 @@ static void parse_line(std::string line, Model *model) {
     }
 }
 
-static struct Model parse_input(std::string path) {
+static struct Model parse_input(std::string path, bool prediction_enabled) {
     std::ifstream input_file(path);
     if (not input_file.is_open()) {
         std::cerr << "Could not open file: " << path << std::endl;
@@ -116,6 +135,7 @@ static struct Model parse_input(std::string path) {
     }
 
     Model model;
+    model._prediction_enabled = prediction_enabled;
     std::string line;
     while (std::getline(input_file, line)) {
         parse_line(line, &model);
@@ -165,13 +185,12 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    bool prediction_enabled = false;
     if (argc > 2 && std::string(argv[2]) == "1") {
-        Task::_prediction_enabled = true;
-    } else {
-        Task::_prediction_enabled = false;
+        prediction_enabled = true;
     }
 
-    Model model = parse_input(argv[1]);
+    Model model = parse_input(argv[1], prediction_enabled);
 
     lttng_ust_tracepoint(sched_sim, input_parsed);
 
@@ -181,11 +200,12 @@ int main(int argc, char *argv[]) {
     lttng_ust_tracepoint(sched_sim, waited_for_task_init);
 
     /* wait at least one period for every task */
-    //duration initial_wait = std::max_element(model._tasks.begin(), model._tasks.end(),
-    //                                         [](std::pair<int, Task *> a, std::pair<int, Task *> b) {
-    //                                            return a.second->_period < b.second->_period;
-    //                                         })->second->_period;
-    model.set_start_time(std::chrono::steady_clock::now());
+    duration initial_wait =
+        std::max_element(model._tasks.begin(), model._tasks.end(),
+                         [](std::pair<int, SimTask *> a, std::pair<int, SimTask *> b) {
+                             return a.second->period() < b.second->period();
+                         })->second->period();
+    model.set_start_time(std::chrono::steady_clock::now() + initial_wait);
 
     /* spawn jobs */
     model.sort_jobs();
@@ -203,15 +223,15 @@ int main(int argc, char *argv[]) {
         }
 
         /* spawn job */
-        Task *task = model._tasks[job._task_id];
-        lttng_ust_tracepoint(sched_sim, job_spawn, task->_id, job._id, (job._deadline - now.time_since_epoch()).time_since_epoch() / 1ns);
+        SimTask *task = model._tasks[job._task_id];
+        lttng_ust_tracepoint(sched_sim, job_spawn, task->id(), job._id, (job._deadline - now.time_since_epoch()).time_since_epoch() / 1ns);
 
-        task->_jobs.push(job);
-        task->_sem.release();
+        task->add_job(job);
+        task->sem().release();
     }
 
     for (auto &[_, task]: model._tasks) {
-        task->_sem.release();
+        task->sem().release();
         task->join();
     }
 

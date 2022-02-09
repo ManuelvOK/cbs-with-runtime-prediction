@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 import argparse
 import re
 import sys
@@ -60,7 +60,7 @@ class Job:
 class Task:
     id: int
     pid: int
-    jobs: Dict[int, Job]
+    jobs: Dict[Tuple[int, int], Job]
     init_event: Event
     migrated_event: Event
     started_real_time_event: Event
@@ -130,16 +130,17 @@ class Task:
     def finish_initialisation(self) -> None:
         # init jobs
         for e in self.job_spawn_events:
-            self.jobs[int(e.data['job'])] = Job(int(e.data['job']), e.time,
-                                                int(e.data['deadline']))
+            self.jobs[(int(e.data['task']), int(e.data['job']))] = Job(int(e.data['job']),
+                                                                       e.time,
+                                                                       int(e.data['deadline']))
 
         # add begin to jobs
         for e in self.begin_job_events:
-            self.jobs[int(e.data['job'])].begin = e.time
+            self.jobs[(int(e.data['task']), int(e.data['job']))].begin = e.time
 
         # add end and execution_time to jobs
         for e in self.end_job_events:
-            job = self.jobs[int(e.data['job'])]
+            job = self.jobs[(int(e.data['task']), int(e.data['job']))]
             job.end = e.time
             job.execution_time = int(e.data['runtime'])
 
@@ -203,6 +204,8 @@ def parse_trace_file(trace_file: str) -> Dict[int, Task]:
     with open(trace_file) as f:
         for line in f:
             event = Event(line)
+            if (event.event_type == "no_match"):
+                continue
             if event.event_type not in events:
                 events[event.event_type] = []
             events[event.event_type].append(event)
@@ -260,10 +263,10 @@ def parse_trace_file(trace_file: str) -> Dict[int, Task]:
         tasks[int(e.data['task'])].add_end_job_event(e)
 
     # assign runtime events
-    for e in events['sched_stat_runtime']:
-        tid = int(e.data['tid'])
-        if tid in pid_mapping:
-            tasks[pid_mapping[tid]].add_runtime_event(e)
+    # for e in events['sched_stat_runtime']:
+    #     tid = int(e.data['tid'])
+    #     if tid in pid_mapping:
+    #         tasks[pid_mapping[tid]].add_runtime_event(e)
 
     # let tasks calculate all the rest
     for t in tasks.values():
@@ -283,7 +286,7 @@ def main():
     with open(args.output, "w+") as f:
         for task in tasks.values():
             task.print_jobs(f)
-            # task.print_events()
+           # task.print_events()
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ PREDICTOR_HEADERS := $(PREDICTOR_EXTDIR)/predictor
 
 LIBRARIES   := $(PREDICTOR_LIB)
 LIB_HEADERS := $(PREDICTOR_INCDIR)
-DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor -Wl,-rpath=$(LIBDIR)
+DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor -Wl,-rpath=$(abspath $(LIBDIR))
 
 PREDICTION_ENABLED ?= 0
 
@@ -84,34 +84,6 @@ $(PREDICTOR_LIB): | $(PREDICTOR_EXTDIR)/ $(LIBDIR)/
 
 $(PREDICTOR_INCDIR): $(PREDICTOR_EXTDIR) | $(LIBINCDIR)/
 	ln -fs "$(CURDIR)/$</predictor" $@
-
-
-%_out_cbs: %_cbs $(TARGET)
-	sudo lttng create kernel-session --output=$@
-	sudo lttng enable-event --kernel "sched*"
-	sudo lttng enable-event --userspace "sched_sim:*"
-	sudo lttng start
-	sudo $(TARGET) $<
-	sudo lttng destroy
-
-%_out_cbsp: %_cbsp $(TARGET)
-	sudo lttng create kernel-session --output=$@
-	sudo lttng enable-event --kernel "sched*"
-	sudo lttng enable-event --userspace "sched_sim:*"
-	sudo lttng start
-	sudo $(TARGET) $< 1
-	sudo lttng destroy
-
-%_filtered: %
-	sudo chmod o+rwx $< -R
-	babeltrace2 $< | grep "$(TARGETNAME)" > $@
-
-
-%_eval_cbs: %_out_cbs_filtered
-	./eval.py $< -o $@
-
-%_eval_cbsp: %_out_cbsp_filtered
-	./eval.py $< -o $@
 
 CPUSET_DIR=/sys/fs/cgroup/cpuset/rt_set
 .PHONY: activate
