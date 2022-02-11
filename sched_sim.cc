@@ -106,7 +106,8 @@ static SimTask *parse_task(std::stringstream *ss, Model *model) {
     int execution_time;
     int period;
     *ss >> id >> execution_time >> period;
-    return new SimTask(id, model->_prediction_enabled, period * 1us, wait_busily);
+    std::vector<unsigned> cpus = {0};
+    return new SimTask(id, model->_prediction_enabled, period * 1us, wait_busily, cpus);
 }
 
 static void parse_line(std::string line, Model *model) {
@@ -150,9 +151,9 @@ static struct Model parse_input(std::string path, bool prediction_enabled) {
 int main(int argc, char *argv[]) {
     lttng_ust_tracepoint(sched_sim, start_main);
 
-    /* put the job spawning onto CPU 1 */
+    /* put the job spawning onto CPU 7 */
     cpu_set_t set;
-    CPU_SET(1,&set);
+    CPU_SET(7,&set);
 
     int ret;
     ret = sched_setaffinity(0, sizeof(set), &set);
