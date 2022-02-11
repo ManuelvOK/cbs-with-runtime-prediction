@@ -185,11 +185,11 @@ class Task : public TaskBase {
         if (this->_prediction_enabled) {
             this->_predictor.train(0, id, duration_cast<std::chrono::nanoseconds>(
                                           std::chrono::duration<double>{runtime} + 0.5ns));
-            if (this->_runtimes.size() == 1) {
-                //sched_yield();
-            }
         }
         lttng_ust_tracepoint(sched_sim, end_job, this->_id, id, runtime / 1ns);
+        if (this->_prediction_enabled and this->_runtimes.size() == 1) {
+            sched_yield();
+        }
     }
 
     bool jobs_left() override {
