@@ -6,22 +6,30 @@ LIBDIR    := $(EXTDIR)/lib
 LIBINCDIR := $(EXTDIR)/inc
 DEPDIR    := .d
 
-TARGETNAME :=sched_sim
-TARGET     :=$(BUILDDIR)/$(TARGETNAME)
+TARGETNAME :=sched_sim ffplay
+TARGET     :=$(patsubst %,$(BUILDDIR)/%, $(TARGETNAME))
 
 RM    :=rm -rf
 MKDIR :=mkdir -p
 
 PID :=$(shell ps | grep zsh | xargs echo | cut -d " " -f1)
 
-SRCSALL := $(patsubst ./%, %, $(shell find -name "*.cc" -o -name "*.h" -o -path ./$(EXTDIR) -prune))
-SRCSCC  := $(filter %.cc, $(SRCSALL))
-SRCH    := $(filter %.h, $(SRCSALL))
-OBJS    := $(patsubst %.cc, $(BUILDDIR)/%.o, $(SRCSCC))
-DEPS    := $(patsubst %.cc, $(DEPDIR)/%.d, $(SRCSCC))
+SRCSALL    := $(patsubst ./%, %, $(shell find -name "*.c*" -o -name "*.h" -o -path ./$(EXTDIR) -prune))
+SRCSCC     := $(filter %.cc, $(SRCSALL))
+SRCSC      := $(filter %.c, $(SRCSALL))
+SRCH       := $(filter %.h, $(SRCSALL))
+CXXOBJS    := $(patsubst %.cc, $(BUILDDIR)/%.o, $(SRCSCC))
+COBJS      := $(patsubst %.c, $(BUILDDIR)/%.o, $(SRCSC))
+ALLOBJS    := $(CXXOBJS) $(COBJS)
+TARGETOBJS := $(patsubst %, $(BUILDDIR)/%.o, $(TARGETNAME))
+OBJS       := $(filter-out $(TARGETOBJS), $(ALLOBJS))
+DEPS       := $(patsubst %.cc, $(DEPDIR)/%.d, $(SRCSCC))
+DEPS       += $(patsubst %.c, $(DEPDIR)/%.d, $(SRCSC))
 
 CXXFLAGS     := -std=c++2a -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-functions -O0
 CXXFLAGS     += -I$(INCDIR) -I$(LIBINCDIR)
+CFLAGS       := -Wall -Wextra -Wpedantic -ggdb -fno-inline-small-functions -O0
+CFLAGS       += -I$(INCDIR) -I$(LIBINCDIR)
 DEPFLAGS     += -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
 CXXFLAGSTAGS := -I/home/morion/.vim/tags -I$(INCDIR)
 
@@ -44,7 +52,7 @@ $(TARGET): | $(BUILDDIR)/ $(DEPDIR)/
 
 $(DEPS): $(DEPDIR)/
 
-$(TARGET): $(OBJS) $(LIBRARIES)
+$(TARGET): $(BUILDDIR)/%: $(BUILDDIR)/%.o $(OBJS) $(LIBRARIES)
 	$(CXX) -o $@ $(filter-out %.so, $^) $(DYN_LIBS)
 	sudo setcap 'cap_sys_nice=eip' $@
 
@@ -73,8 +81,11 @@ tags: $(SRCSCC)
 	sed -e '/^$$/d' -e '/\.o:[ \t]*$$/d' | \
 	ctags -L - --c++-kinds=+p --fields=+iaS --extra=+q -o "tags" --language-force=C++
 
-$(OBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
+$(CXXOBJS): $(BUILDDIR)/%.o: %.cc $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
 	$(CXX) $(DEPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+$(COBJS): $(BUILDDIR)/%.o: %.c $(LIB_HEADERS) $(DEPDIR)/%.d | $(DEPDIR)/
+	$(CC) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(PREDICTOR_LIB): | $(PREDICTOR_EXTDIR)/ $(LIBDIR)/
 	cd $(PREDICTOR_EXTDIR) && \

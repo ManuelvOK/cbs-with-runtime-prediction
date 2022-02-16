@@ -219,8 +219,8 @@ class Task : public TaskBase {
          std::function<std::vector<double> (T)> generate,
          std::vector<unsigned> cpus = std::vector<unsigned>())
         : TaskBase(id, prediction_enabled, duration(0), period, cpus),
-          _execute(execute),
-          _generate(generate) {}
+          _generate(generate),
+          _execute(execute) {}
 
     void add_job(T arg) {
         this->_jobs.push(arg);
