@@ -13,7 +13,9 @@ std::vector<Task<void *> *> tasks;
 static std::vector<unsigned> get_cpus(int cpus) {
     std::vector<unsigned> ret;
     for (int i = 0; i < 8; ++i) {
-        ret.push_back(cpus % 2);
+        if (cpus % 2) {
+            ret.push_back(cpus % 2);
+        }
         cpus = cpus >> 1;
     }
     return ret;

@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <unistd.h>
 #include <linux/types.h>
 #include <linux/unistd.h>
@@ -7,15 +11,6 @@
 #include <sys/syscall.h>
 
 #define gettid() syscall(__NR_gettid)
-
-int sched_setattr(pid_t pid,
-                  const struct sched_attr *attr,
-                  unsigned int flags);
-
-int sched_getattr(pid_t pid,
-                  struct sched_attr *attr,
-                  unsigned int size,
-                  unsigned int flags);
 
 struct sched_attr {
     __u32 size;
@@ -35,3 +30,16 @@ struct sched_attr {
     __u64 sched_period;
 };
 
+
+int sched_setattr(pid_t pid,
+                  const struct sched_attr *attr,
+                  unsigned int flags);
+
+int sched_getattr(pid_t pid,
+                  struct sched_attr *attr,
+                  unsigned int size,
+                  unsigned int flags);
+
+#ifdef __cplusplus
+}
+#endif

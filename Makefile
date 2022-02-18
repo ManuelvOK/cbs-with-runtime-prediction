@@ -6,7 +6,7 @@ LIBDIR    := $(EXTDIR)/lib
 LIBINCDIR := $(EXTDIR)/inc
 DEPDIR    := .d
 
-TARGETNAME :=sched_sim ffplay
+TARGETNAME :=sched_sim play_video
 TARGET     :=$(patsubst %,$(BUILDDIR)/%, $(TARGETNAME))
 
 RM    :=rm -rf
@@ -47,14 +47,14 @@ PREDICTION_ENABLED ?= 0
 
 .PHONY: all
 all: $(TARGET)
+#all: CXXFLAGS += -fsanitize=address
+#all: DYN_LIBS += -fsanitize=address
 
 $(TARGET): | $(BUILDDIR)/ $(DEPDIR)/
 
-$(DEPS): $(DEPDIR)/
+$(BUILDDIR)/play_video: DYN_LIBS += -lavformat -lavcodec -lswresample -lswscale -lavutil `sdl2-config --cflags --libs`
 
-$(TARGET): $(BUILDDIR)/%: $(BUILDDIR)/%.o $(OBJS) $(LIBRARIES)
-	$(CXX) -o $@ $(filter-out %.so, $^) $(DYN_LIBS)
-	sudo setcap 'cap_sys_nice=eip' $@
+$(DEPS): $(DEPDIR)/
 
 %/:
 	$(MKDIR) $@
@@ -73,6 +73,10 @@ sure: clean
 .PHONY: run
 run: all
 	@$(TARGET) $(INPUT_FILE) $(PREDICTION_ENABLED)
+
+$(TARGET): $(BUILDDIR)/%: $(BUILDDIR)/%.o $(OBJS) $(LIBRARIES)
+	$(CXX) -o $@ $(filter-out %.so, $^) $(DYN_LIBS)
+	sudo setcap 'cap_sys_nice=eip' $@
 
 $(BUILDDIR)/sched_sim_tracepoint.o: CXXFLAGS += -I.
 
@@ -115,5 +119,6 @@ deactivate:
 .PHONY: debug
 debug:
 	echo $(SRCSALL)
+
 
 -include $(wildcard $(DEPS))
