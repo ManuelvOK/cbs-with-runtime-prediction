@@ -4,3 +4,6 @@ tags
 .d/
 *.log
 distribute.sh
+build/
+ext/lib/
+ext/inc/
