@@ -9,6 +9,8 @@ struct metrics {
 extern "C" {
 #endif
 
+int create_non_rt_task(int cpus, int id, void (*execute)(void *));
+
 int create_task(int cpus, int id, int period, void (*execute)(void *), int execution_time);
 
 int create_task_with_prediction(int cpus, int id, int period, void (*execute)(void *), struct metrics(*generate)(void *));

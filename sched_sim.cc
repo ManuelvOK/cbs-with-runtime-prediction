@@ -107,7 +107,7 @@ static SimTask *parse_task(std::stringstream *ss, Model *model) {
     int period;
     *ss >> id >> execution_time >> period;
     std::vector<unsigned> cpus = {0};
-    return new SimTask(id, model->_prediction_enabled, period * 1us, wait_busily, cpus);
+    return new SimTask(id, period * 1us, wait_busily, cpus);
 }
 
 static void parse_line(std::string line, Model *model) {

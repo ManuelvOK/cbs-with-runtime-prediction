@@ -13,10 +13,9 @@ std::vector<Task<void *> *> tasks;
 static std::vector<unsigned> get_cpus(int cpus) {
     std::vector<unsigned> ret;
     for (int i = 0; i < 8; ++i) {
-        if (cpus % 2) {
-            ret.push_back(cpus % 2);
+        if ((cpus >> i) % 2) {
+            ret.push_back(i);
         }
-        cpus = cpus >> 1;
     }
     return ret;
 }
@@ -35,6 +34,13 @@ static std::vector<double> generate_metrics(struct metrics(*generate)(void *), v
     return metrics;
 }
 
+int create_non_rt_task(int cpus, int id, void (*execute)(void *)) {
+    Task<void *> *task = new Task<void *>(id, std::function<void(void *)>(execute), get_cpus(cpus));
+    int handle = tasks.size();
+    tasks.push_back(task);
+    return handle;
+}
+
 int create_task(int cpus, int id, int period, void (*execute)(void *), int execution_time) {
     Task<void *> *task = new Task<void *>(id, duration(period), std::function<void(void *)>(execute), duration(execution_time), get_cpus(cpus));
     int handle = tasks.size();
@@ -44,7 +50,7 @@ int create_task(int cpus, int id, int period, void (*execute)(void *), int execu
 
 int create_task_with_prediction(int cpus, int id, int period, void (*execute)(void *), struct metrics(*generate)(void *)) {
     auto gen_metrics = std::bind(generate_metrics, generate, std::placeholders::_1);
-    Task<void *> *task = new Task<void *>(id, true, duration(period), std::function<void(void *)>(execute), gen_metrics, get_cpus(cpus));
+    Task<void *> *task = new Task<void *>(id, duration(period), std::function<void(void *)>(execute), gen_metrics, get_cpus(cpus));
     int handle = tasks.size();
     tasks.push_back(task);
     return handle;

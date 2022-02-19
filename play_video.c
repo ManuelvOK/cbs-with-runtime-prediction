@@ -1,9 +1,12 @@
-#include <unistd.h>
 #include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+
 #include <SDL2/SDL.h>
 
 #define __USE_GNU
@@ -18,11 +21,12 @@ struct SwsContext *sws_context = NULL;
 
 int video_stream = -1;
 
+uint8_t *buf = NULL;
+
 AVCodec *codec = NULL;
 
 SDL_Window *screen = NULL;
 SDL_Renderer *renderer = NULL;
-SDL_Texture *texture = NULL;
 
 
 int init_player(int argc, char **argv) {
@@ -53,7 +57,7 @@ int init_player(int argc, char **argv) {
     av_dump_format(format_context, 0, input_file, 0);
 
     /* find video stream */
-    for (int i = 0; i < format_context->nb_streams; i++) {
+    for (unsigned i = 0; i < format_context->nb_streams; i++) {
         if (format_context->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             video_stream = i;
             break;
@@ -98,15 +102,17 @@ int init_player(int argc, char **argv) {
     renderer = SDL_CreateRenderer(screen, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
                                               | SDL_RENDERER_TARGETTEXTURE);
 
-    /* init SDL texture */
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING,
-                                codec_context->width, codec_context->height);
-
     sws_context = sws_getContext(codec_context->width, codec_context->height,
                                  codec_context->pix_fmt,
                                  codec_context->width, codec_context->height,
                                  AV_PIX_FMT_YUV420P, SWS_BILINEAR,
                                  NULL, NULL, NULL);
+
+    int n_bytes;
+    n_bytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, codec_context->width,
+                                       codec_context->height, 32);
+    buf = av_malloc(n_bytes * sizeof(uint8_t));
+
     return 0;
 }
 
@@ -133,14 +139,28 @@ void read_frame(void *workload) {
         return;
     }
 
-    av_read_frame(load->format_context, load->packet);
-    load->finished = 1;
+    while (!load->finished) {
+        /* read frame */
+        av_read_frame(load->format_context, load->packet);
+
+        /* discard packet if it is not from the vide stream */
+        if (load->packet->stream_index != video_stream) {
+            continue;
+        }
+
+        load->finished = 1;
+    }
 }
+
+struct pic {
+    AVFrame *pic;
+    int pic_number;
+};
 
 struct decode_workload {
     AVCodecContext *codec_context;
     AVPacket *packet;
-    AVFrame *pics[32];
+    struct pic pics[32];
     int n_pics;
     int finished;
 };
@@ -148,7 +168,6 @@ struct decode_workload {
 struct decode_workload init_decode_load(AVPacket *packet) {
     struct decode_workload ret = {.codec_context = codec_context,
                                   .packet = packet,
-                                  .pics = {NULL},
                                   .n_pics = 0,
                                   .finished = 0};
     return ret;
@@ -157,14 +176,11 @@ struct decode_workload init_decode_load(AVPacket *packet) {
 void decode_frame(void *workload) {
     static int n = 0;
     struct decode_workload *load = workload;
-    if (load->packet->stream_index != video_stream) {
-        load->finished = 1;
-        return;
-    }
 
     int ret = avcodec_send_packet(load->codec_context, load->packet);
     load->n_pics = 0;
     AVFrame *frame = av_frame_alloc();
+
     while(ret >= 0) {
 
         /* get frame */
@@ -178,12 +194,6 @@ void decode_frame(void *workload) {
         }
 
         /* init new pic */
-        int n_bytes;
-        uint8_t *buf = NULL;
-        n_bytes = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, load->codec_context->width,
-                                           load->codec_context->height, 32);
-        buf = av_malloc(n_bytes * sizeof(uint8_t));
-
         AVFrame *pic = av_frame_alloc();
         av_image_fill_arrays(pic->data, pic->linesize, buf, AV_PIX_FMT_YUV420P,
                              load->codec_context->width, load->codec_context->height, 32);
@@ -194,24 +204,65 @@ void decode_frame(void *workload) {
 
 
         //printf("Frame %c (%d) pts %d dts %d key_frame %d [coded_picture_number %d,"
-        //       " display_picture_number %d, %dx%d]\n",
+        //       " display_picture_number %d]\n",
         //       av_get_picture_type_char(frame->pict_type), codec_context->frame_number,
         //       frame->pts, frame->pkt_dts, frame->key_frame,
-        //       frame->coded_picture_number, frame->display_picture_number,
-        //       codec_context->width, codec_context->height);
+        //       frame->coded_picture_number, frame->display_picture_number);
 
-        load->pics[load->n_pics] = pic;
+        load->pics[load->n_pics].pic = pic;
+        load->pics[load->n_pics].pic_number = codec_context->frame_number;
 
         ++load->n_pics;
     }
 
+    /* clean up */
     av_frame_free(&frame);
     av_free(frame);
+    av_packet_unref(load->packet);
+
     n++;
     load->finished = 1;
 }
 
+struct texture_workload {
+    struct pic pic;
+    SDL_Texture *texture;
+    int finished;
+};
 
+struct texture_workload init_texture_load() {
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING,
+                                codec_context->width, codec_context->height);
+
+    struct texture_workload ret = {.texture = texture,
+                                   .finished = 0};
+    return ret;
+}
+
+void update_texture(void *texture_workload) {
+
+    struct texture_workload *load = texture_workload;
+
+
+    SDL_Rect rect = {0, 0, codec_context->width, codec_context->height};
+
+    SDL_UpdateYUVTexture(load->texture, &rect, load->pic.pic->data[0], load->pic.pic->linesize[0],
+                         load->pic.pic->data[1], load->pic.pic->linesize[1], load->pic.pic->data[2],
+                         load->pic.pic->linesize[2]);
+    /* clean up pic */
+    av_frame_free(&load->pic.pic);
+    av_free(load->pic.pic);
+    load->pic.pic = NULL;
+    load->finished = 1;
+}
+
+
+double now() {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    double t_now = t.tv_nsec;
+    return t_now + t.tv_sec * 1000 * 1000 * 1000;
+}
 
 int main(int argc, char **argv) {
     /* put the job spawning onto CPU 7 */
@@ -245,22 +296,17 @@ int main(int argc, char **argv) {
     }
 
     double fps = av_q2d(format_context->streams[video_stream]->r_frame_rate);
-    double sleep_time = 1.0/(double)fps;
+    double frame_period = 1.0/fps * 1000 * 1000 * 1000;
 
-    int read_task = create_task_with_prediction(1, 0, sleep_time * 1000 * 1000 * 1000, read_frame, NULL);
-    int decode_task = create_task_with_prediction(2, 1, sleep_time * 1000 * 1000 * 1000, decode_frame, NULL);
+    int read_task = create_non_rt_task(64, 0, read_frame);
+    int decode_task = create_non_rt_task(64, 1, decode_frame);
+    int texture_task = create_non_rt_task(64, 2, update_texture);
+
+    //int read_task = create_task_with_prediction(1, 0, frame_period, read_frame, NULL);
+    //int decode_task = create_task_with_prediction(2, 1, frame_period, decode_frame, NULL);
 
     struct read_workload read_loads[32];
-    struct decode_workload decode_loads[32];
-    AVFrame *pics[100] = {NULL};
-
     int first_read_load = 0;
-
-    int first_decode_load = 0;
-    int n_decode_loads = 0;
-
-    int first_pic = 0;
-    int n_pics = 0;
 
     /* initialise all 32 read jobs */
     for (int i = 0; i < 32; ++i) {
@@ -273,10 +319,30 @@ int main(int argc, char **argv) {
         release_sem(read_task);
     }
 
+    struct decode_workload decode_loads[32];
+    int first_decode_load = 0;
+    int n_decode_loads = 0;
 
+    struct texture_workload texture_loads[32];
+    int first_texture_load = 0;
+    int n_texture_loads = 0;
 
-    int running = 1;
-    while (running) {
+    for (int i = 0; i < 32; ++i) {
+        texture_loads[i] = init_texture_load();
+    }
+
+    double t_next_pic = now();
+    int n_pics_shown = 0;
+    int did_sleep = 0;
+    while (1) {
+        /* check for quit */
+        SDL_Event event;
+        SDL_PollEvent(&event);
+        if (event.type == SDL_QUIT
+            || (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_Q)) {
+            break;
+        }
+
         /* check if read job finished */
         struct read_workload *read_load = &read_loads[first_read_load];
         if (read_load->finished && n_decode_loads < 32) {
@@ -298,55 +364,84 @@ int main(int argc, char **argv) {
 
         /* check if decode job finished */
         struct decode_workload *decode_load = &decode_loads[first_decode_load];
-        if (n_decode_loads && decode_load->finished && n_pics + decode_load->n_pics <= 100) {
+        if (n_decode_loads && decode_load->finished
+            && n_texture_loads + decode_load->n_pics <= 32) {
             for (int i = 0; i < decode_load->n_pics; ++i) {
-                int next_pic = (first_pic + n_pics) % 100;
-                pics[next_pic] = decode_load->pics[i];
-                ++n_pics;
+                /* init new texture job */
+                int next_texture_load = (first_texture_load + n_texture_loads) % 32;
+                struct texture_workload *texture_load = &texture_loads[next_texture_load];
+                texture_load->pic = decode_load->pics[i];
+                texture_load->finished = 0;
+
+                add_job_to_task(texture_task, texture_load);
+                release_sem(texture_task);
+                ++n_texture_loads;
             }
-            /* clean up decode load */
-            av_packet_unref(decode_load->packet);
 
             ++first_decode_load;
             first_decode_load %= 32;
             --n_decode_loads;
         }
 
-        if (n_pics > 0) {
-            AVFrame *pic = pics[first_pic];
-
-            SDL_Rect rect = {0, 0, codec_context->width, codec_context->height};
-
-            SDL_UpdateYUVTexture(texture, &rect, pic->data[0], pic->linesize[0],
-                                    pic->data[1], pic->linesize[1], pic->data[2],
-                                    pic->linesize[2]);
-
-            SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, NULL, NULL);
-            SDL_RenderPresent(renderer);
-
-            /* clean up pic */
-            av_frame_free(&pic);
-            av_free(pic);
-
-            ++first_pic;
-            first_pic %= 100;
-            --n_pics;
-
-            SDL_Delay((1000 * sleep_time) - 10);
+        double t_until_next_pic = t_next_pic - now();
+        /* sleep 1ms until there is less then 2ms time left */
+        if (t_until_next_pic >= 2000 * 1000) {
+            SDL_Delay(1);
+            did_sleep = 1;
+            continue;
         }
 
-        SDL_Event event;
-        SDL_PollEvent(&event);
-        switch(event.type) {
-            case SDL_QUIT:
-                running = 0;
-                break;
-            default: break;
+        /* check if texture job finished */
+        struct texture_workload *texture_load = &texture_loads[first_texture_load];
+        if (n_texture_loads && texture_load->finished) {
+            /* reset timing if at start */
+            if (!n_pics_shown) {
+                t_next_pic = now();
+            } else {
+                /* busily wait until there is only 5us remaining */
+                while (t_until_next_pic > 5000) {
+                    t_until_next_pic = t_next_pic - now();
+                }
+            }
+
+            t_next_pic += frame_period;
+
+            /* only show if it is not more than 1 frame period too late*/
+            if (-t_until_next_pic < frame_period) {
+                if (t_until_next_pic < 0) {
+                    printf("did_sleep? %d\t", did_sleep);
+                    printf("Just a little late: %.0f\n", -t_until_next_pic);
+                }
+
+                did_sleep = 0;
+                SDL_RenderClear(renderer);
+                SDL_RenderCopy(renderer, texture_load->texture, NULL, NULL);
+                SDL_RenderPresent(renderer);
+            } else {
+                printf("Dropping frame %d!\n", texture_load->pic.pic_number);
+            }
+
+            ++first_texture_load;
+            first_texture_load %= 32;
+            --n_texture_loads;
+            ++n_pics_shown;
         }
     }
 
+    /* destroy textures */
+    for (int i = 0; i < 32; ++i) {
+        SDL_DestroyTexture(texture_loads[i].texture);
+    }
+
+    /* join tasks */
+    release_sem(read_task);
+    join_task(read_task);
+
+    release_sem(decode_task);
+    join_task(decode_task);
+
     /* Cleanup */
+    av_free(buf);
     avcodec_close(codec_context);
     avformat_close_input(&format_context);
 

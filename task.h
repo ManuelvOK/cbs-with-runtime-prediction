@@ -25,6 +25,7 @@ class TaskBase {
   protected:
     int _id;
     bool _prediction_enabled;
+    bool _realtime_enabled;
     std::counting_semaphore<> _sem;
     duration _execution_time;
     duration _period;
@@ -47,6 +48,7 @@ class TaskBase {
             cpu_set_t set;
 
             for (const auto &cpu: this->_cpus) {
+                std::cout << "task " << this->_id << " on cpu " << cpu << std::endl;
                 CPU_SET(cpu, &set);
             }
 
@@ -59,33 +61,35 @@ class TaskBase {
             lttng_ust_tracepoint(sched_sim, migrated_task, this->_id, 0);
         }
 
-        /* configure deadline scheduling */
-        struct sched_attr attr;
-        unsigned int flags = 0;
+        if (this->_realtime_enabled) {
+            /* configure deadline scheduling */
+            struct sched_attr attr;
+            unsigned int flags = 0;
 
-        attr.size = sizeof(attr);
-        attr.sched_flags = 0;
-        attr.sched_nice = 0;
-        attr.sched_priority = 0;
+            attr.size = sizeof(attr);
+            attr.sched_flags = 0;
+            attr.sched_nice = 0;
+            attr.sched_priority = 0;
 
-        attr.sched_policy = SCHED_DEADLINE;
-        if (this->_execution_time > 1us) {
-            attr.sched_runtime = this->_execution_time / 1ns;
-        } else {
-            attr.sched_runtime = (0.9*this->_period) / 1ns;
+            attr.sched_policy = SCHED_DEADLINE;
+            if (this->_execution_time > 1us) {
+                attr.sched_runtime = this->_execution_time / 1ns;
+            } else {
+                attr.sched_runtime = (0.9*this->_period) / 1ns;
+            }
+            attr.sched_period = attr.sched_deadline = this->_period / 1ns;
+
+            int ret = sched_setattr(0, &attr, flags);
+            if (ret < 0) {
+                perror("initial sched_setattr");
+                std::cerr << "runtime: " << attr.sched_runtime << std::endl;
+                std::cerr << "period: " << attr.sched_period << std::endl;
+                exit(-1);
+            }
+
+            lttng_ust_tracepoint(sched_sim, started_real_time_task, this->_id);
+            sched_yield();
         }
-        attr.sched_period = attr.sched_deadline = this->_period / 1ns;
-
-        int ret = sched_setattr(0, &attr, flags);
-        if (ret < 0) {
-            perror("initial sched_setattr");
-            std::cerr << "runtime: " << attr.sched_runtime << std::endl;
-            std::cerr << "period: " << attr.sched_period << std::endl;
-            exit(-1);
-        }
-
-        lttng_ust_tracepoint(sched_sim, started_real_time_task, this->_id);
-        sched_yield();
 
         /* run jobs if there are some */
         int job_id = 0;
@@ -108,10 +112,10 @@ class TaskBase {
 
     virtual bool jobs_left() = 0;
 
-    TaskBase(int id, bool prediction_enabled, duration execution_time, duration period,
+    TaskBase(int id, bool prediction_enabled, bool realtime_enabled, duration execution_time, duration period,
              std::vector<unsigned> cpus)
-        : _id(id), _prediction_enabled(prediction_enabled), _sem(0),
-          _execution_time(execution_time), _period(period), _cpus(cpus) {
+        : _id(id), _prediction_enabled(prediction_enabled), _realtime_enabled(realtime_enabled),
+          _sem(0), _execution_time(execution_time), _period(period), _cpus(cpus) {
             this->_thread = std::thread(&TaskBase::run_task, this);
         }
 
@@ -143,7 +147,7 @@ class Task : public TaskBase {
         /* get jobs parameters */
         T arg = this->_jobs.front();
         this->_jobs.pop();
-        if (this->_prediction_enabled) {
+        if (this->_prediction_enabled and this->_realtime_enabled) {
             std::vector<double> metrics = this->_generate(arg);
             duration prediction  = this->_predictor.predict(0, id, metrics.data(), metrics.size());
             /* first prediction is always 90% of the period. It will most likely not take this time
@@ -181,12 +185,12 @@ class Task : public TaskBase {
         this->_last_checkpoint = now;
 
         this->_runtimes.push_back(runtime / 1ns);
-        if (this->_prediction_enabled) {
+        if (this->_prediction_enabled and this->_realtime_enabled) {
             this->_predictor.train(0, id, duration_cast<std::chrono::nanoseconds>(
                                           std::chrono::duration<double>{runtime} + 0.5ns));
         }
         lttng_ust_tracepoint(sched_sim, end_job, this->_id, id, runtime / 1ns);
-        if (this->_prediction_enabled and this->_runtimes.size() == 1) {
+        if (this->_prediction_enabled and this->_realtime_enabled and this->_runtimes.size() == 1) {
             sched_yield();
         }
     }
@@ -196,22 +200,31 @@ class Task : public TaskBase {
     };
 
   public:
-    Task(int id, duration period, std::function<void (T)> execute,
-         duration execution_time, std::vector<unsigned> cpus = std::vector<unsigned>())
-        : TaskBase(id, 0, execution_time, period, cpus),
+    /* Non real-time task */
+    Task(int id, std::function<void (T)> execute,
+         std::vector<unsigned> cpus = std::vector<unsigned>())
+        : TaskBase(id, false, false, duration(0), duration(0), cpus),
           _execute(execute) {}
 
-    Task(int id, bool prediction_enabled, duration period, std::function<void (T)> execute,
+    /* task without prediction */
+    Task(int id, duration period, std::function<void (T)> execute,
+         duration execution_time, std::vector<unsigned> cpus = std::vector<unsigned>())
+        : TaskBase(id, false, true, execution_time, period, cpus),
+          _execute(execute) {}
+
+    /* task with prediction but without metrics */
+    Task(int id, duration period, std::function<void (T)> execute,
          std::vector<unsigned> cpus = std::vector<unsigned>())
-        : TaskBase(id, prediction_enabled, duration(0), period, cpus),
+        : TaskBase(id, false, true, duration(0), period, cpus),
           _execute(execute) {
             this->_generate = [](T t) { (void)t; return std::vector<double>(); };
         }
 
-    Task(int id, bool prediction_enabled, duration period, std::function<void (T)> execute,
+    /* task with prediction and metrics */
+    Task(int id, duration period, std::function<void (T)> execute,
          std::function<std::vector<double> (T)> generate,
          std::vector<unsigned> cpus = std::vector<unsigned>())
-        : TaskBase(id, prediction_enabled, duration(0), period, cpus),
+        : TaskBase(id, false, true, duration(0), period, cpus),
           _generate(generate),
           _execute(execute) {}
 
