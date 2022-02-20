@@ -40,7 +40,7 @@ PREDICTOR_HEADERS := $(PREDICTOR_EXTDIR)/predictor
 
 LIBRARIES   := $(PREDICTOR_LIB)
 LIB_HEADERS := $(PREDICTOR_INCDIR)
-DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor -Wl,-rpath=$(abspath $(LIBDIR))
+DYN_LIBS    := -pthread -llttng-ust -ldl -L./$(LIBDIR) -lpredictor -Wl,-rpath=$(realpath $(dir $(lastword $(MAKEFILE_LIST))))/$(LIBDIR)
 
 PREDICTION_ENABLED ?= 0
 

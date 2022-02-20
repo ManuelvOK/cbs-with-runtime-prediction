@@ -14,6 +14,7 @@
 
 #include "rt.h"
 #include "ctask.h"
+#include "play_video_tracepoint.h"
 
 AVFormatContext *format_context = NULL;
 AVCodecContext *codec_context = NULL;
@@ -163,7 +164,7 @@ static struct read_workload init_read_load() {
     return ret;
 }
 
-static void read_frame(void *workload) {
+static void read_packet(void *workload) {
     double t_begin = thread_now();
     struct read_workload *load = workload;
 
@@ -185,7 +186,7 @@ static void read_frame(void *workload) {
 
         load->finished = 1;
     }
-    //printf("Reading took %.0fus\n", (thread_now() - t_begin) / 1000);
+    lttng_ust_tracepoint(play_video, read_packet, thread_now() - t_begin);
 }
 
 static struct decode_workload init_decode_load(AVPacket *packet) {
@@ -194,6 +195,16 @@ static struct decode_workload init_decode_load(AVPacket *packet) {
                                   .n_pics = 0,
                                   .finished = 0};
     return ret;
+}
+
+struct metrics decode_metrics(void *workload) {
+    struct decode_workload *load = workload;
+    struct metrics metrics;
+    metrics.size = 1;
+    metrics.data = malloc(metrics.size * sizeof(*metrics.data));
+
+    metrics.data[0] = load->packet->size;
+    return metrics;
 }
 
 static void decode_frame(void *workload) {
@@ -238,7 +249,7 @@ static void decode_frame(void *workload) {
 
         ++load->n_pics;
 
-        //printf("Decoding took %.0fus\n", (thread_now() - t_begin) / 1000);
+        lttng_ust_tracepoint(play_video, decode_frame, thread_now() - t_begin);
     }
 
     /* clean up */
@@ -260,6 +271,18 @@ static struct texture_workload init_texture_load() {
     return ret;
 }
 
+struct metrics texture_metrics(void *workload) {
+    struct texture_workload *load = workload;
+    struct metrics metrics;
+    metrics.size = 3;
+    metrics.data = malloc(metrics.size * sizeof(*metrics.data));
+
+    metrics.data[0] = load->pic.pic->linesize[0];
+    metrics.data[1] = load->pic.pic->linesize[1];
+    metrics.data[2] = load->pic.pic->linesize[2];
+    return metrics;
+}
+
 static void update_texture(void *texture_workload) {
     double t_begin = thread_now();
     struct texture_workload *load = texture_workload;
@@ -276,11 +299,13 @@ static void update_texture(void *texture_workload) {
     av_free(load->pic.pic);
     load->pic.pic = NULL;
     load->finished = 1;
-    //printf("Texturing took %.0fus\n", (thread_now() - t_begin) / 1000);
+    lttng_ust_tracepoint(play_video, update_texture, thread_now() - t_begin);
 }
 
 
 int main(int argc, char **argv) {
+    lttng_ust_tracepoint(play_video, start_main);
+
     /* put the job spawning onto CPU 7 */
     cpu_set_t set;
     CPU_SET(7,&set);
@@ -314,12 +339,26 @@ int main(int argc, char **argv) {
     double fps = av_q2d(format_context->streams[video_stream]->r_frame_rate);
     double frame_period = 1.0/fps * 1000 * 1000 * 1000;
 
-    int read_task = create_non_rt_task(127, 0, read_frame);
-    int decode_task = create_non_rt_task(127, 1, decode_frame);
-    int texture_task = create_non_rt_task(127, 2, update_texture);
+    /* non-rt tasks */
+    //int read_task = create_non_rt_task(127, 0, read_packet);
+    //int decode_task = create_non_rt_task(127, 1, decode_frame);
+    //int texture_task = create_non_rt_task(127, 2, update_texture);
 
-    //int read_task = create_task_with_prediction(1, 0, frame_period, read_frame, NULL);
-    //int decode_task = create_task_with_prediction(2, 1, frame_period, decode_frame, NULL);
+
+    /* rt tasks without prediction */
+    //int read_task = create_task(127, 0, frame_period, read_packet, 34703);
+    //int decode_task = create_task(127, 1, frame_period, decode_frame, 9613976);
+    //int texture_task = create_task(127, 2, frame_period, update_texture, 489318);
+
+    /* rt tasks with prediction */
+    //int read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
+    //int decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, NULL);
+    //int texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, NULL);
+
+    /* rt tasks with prediction and metrics */
+    int read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
+    int decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, decode_metrics);
+    int texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, texture_metrics);
 
     struct read_workload read_loads[32];
     int first_read_load = 0;
@@ -350,7 +389,7 @@ int main(int argc, char **argv) {
     double t_next_pic = now();
     int n_pics_shown = 0;
     int did_sleep = 0;
-    while (1) {
+    while (n_pics_shown < 3600) {
         /* check for quit */
         SDL_Event event;
         SDL_PollEvent(&event);
@@ -425,8 +464,8 @@ int main(int argc, char **argv) {
                 t_next_pic = now();
                 t_until_next_pic = 0;
             } else {
-                /* busily wait until there is only 10us remaining */
-                while (t_until_next_pic > 10 * 1000) {
+                /* busily wait until there is only 1us remaining */
+                while (t_until_next_pic > 1 * 1000) {
                     t_until_next_pic = t_next_pic - now();
                     did_wait = 1;
                 }
@@ -444,22 +483,27 @@ int main(int argc, char **argv) {
             //}
 
             /* reset timing if too late */
-            if (-t_until_next_pic > frame_period) {
-                printf("Resetting timing because of frame %d being %.0fus too late.\n",
-                       texture_load.pic.pic_number, -t_until_next_pic / 1000);
-                t_next_pic = now() + frame_period;
-                t_until_next_pic = 0;
-            }
+            //if (-t_until_next_pic > frame_period) {
+            //    printf("Resetting timing because of frame %d being %.0fus too late.\n",
+            //           texture_load.pic.pic_number, -t_until_next_pic / 1000);
+            //    t_next_pic = now() + frame_period;
+            //    t_until_next_pic = 0;
+            //}
 
-            if (t_until_next_pic < 0) {
-                printf("did_sleep? %d\t", did_sleep);
-                printf("did_wait? %d\t", did_wait);
-                printf("Just a little late: %.0fus\n", -t_until_next_pic / 1000);
-            }
+            //if (t_until_next_pic < 0) {
+            //    printf("did_sleep? %d\t", did_sleep);
+            //    printf("did_wait? %d\t", did_wait);
+            //    printf("Just a little late: %.0fus\n", -t_until_next_pic / 1000);
+            //}
+
+
 
             did_sleep = 0;
 
-            printf("Render frame %d\n", texture_load.pic.pic_number);
+            lttng_ust_tracepoint(play_video, render, t_until_next_pic);
+            if (n_pics_shown < 25 || n_pics_shown % 25 == 0) {
+                printf("Rendered pic %d\n", n_pics_shown);
+            }
             //SDL_RenderClear(renderer);
             //SDL_RenderCopy(renderer, texture_load.texture, NULL, NULL);
             //SDL_RenderPresent(renderer);
