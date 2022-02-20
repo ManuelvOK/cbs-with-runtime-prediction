@@ -347,9 +347,9 @@ int main(int argc, char **argv) {
 
     if (argc < 3 || strcmp(argv[2],"cfs") == 0) {
         /* non-rt tasks */
-        int read_task = create_non_rt_task(127, 0, read_packet);
-        int decode_task = create_non_rt_task(127, 1, decode_frame);
-        int texture_task = create_non_rt_task(127, 2, update_texture);
+        read_task = create_non_rt_task(127, 0, read_packet);
+        decode_task = create_non_rt_task(127, 1, decode_frame);
+        texture_task = create_non_rt_task(127, 2, update_texture);
     } else if (strcmp(argv[2],"rt") == 0) {
         /* rt tasks without prediction */
         read_task = create_task(127, 0, frame_period, read_packet, 34703);
@@ -395,7 +395,6 @@ int main(int argc, char **argv) {
 
     double t_next_pic = now();
     int n_pics_shown = 0;
-    int did_sleep = 0;
     while (n_pics_shown < 3600) {
         /* check for quit */
         SDL_Event event;
@@ -459,13 +458,11 @@ int main(int argc, char **argv) {
         /* sleep 1ms until there is less then 2ms time left */
         if (t_until_next_pic >= 2000 * 1000) {
             SDL_Delay(1);
-            did_sleep = 1;
             continue;
         }
 
         /* check if texture job finished */
         if (n_texture_loads && texture_load.finished) {
-            int did_wait = 0;
             /* reset timing if at start */
             if (!n_pics_shown) {
                 t_next_pic = now();
@@ -474,7 +471,6 @@ int main(int argc, char **argv) {
                 /* busily wait until there is only 1us remaining */
                 while (t_until_next_pic > 1 * 1000) {
                     t_until_next_pic = t_next_pic - now();
-                    did_wait = 1;
                 }
             }
 
@@ -498,14 +494,8 @@ int main(int argc, char **argv) {
             //}
 
             //if (t_until_next_pic < 0) {
-            //    printf("did_sleep? %d\t", did_sleep);
-            //    printf("did_wait? %d\t", did_wait);
             //    printf("Just a little late: %.0fus\n", -t_until_next_pic / 1000);
             //}
-
-
-
-            did_sleep = 0;
 
             lttng_ust_tracepoint(play_video, render, t_until_next_pic);
             if (n_pics_shown < 25 || n_pics_shown % 25 == 0) {
