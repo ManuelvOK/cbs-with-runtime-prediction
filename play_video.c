@@ -315,20 +315,22 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
-    /* configure real-time scheduling */
-    struct sched_attr attr;
-    unsigned int flags = 0;
+    if (argc > 2 && strcmp(argv[2],"cfs") != 0) {
+        /* configure real-time scheduling */
+        struct sched_attr attr;
+        unsigned int flags = 0;
 
-    attr.size = sizeof(attr);
-    attr.sched_flags = 0;
-    attr.sched_nice = 0;
-    attr.sched_priority = SCHED_FIFO;
+        attr.size = sizeof(attr);
+        attr.sched_flags = 0;
+        attr.sched_nice = 0;
+        attr.sched_priority = SCHED_FIFO;
 
-    attr.sched_policy = SCHED_FIFO;
+        attr.sched_policy = SCHED_FIFO;
 
-    if (sched_setattr(0, &attr, flags) < 0) {
-        perror("sched_setattr");
-        exit(-1);
+        if (sched_setattr(0, &attr, flags) < 0) {
+            perror("sched_setattr");
+            exit(-1);
+        }
     }
 
     if (init_player(argc, argv)) {
@@ -339,26 +341,31 @@ int main(int argc, char **argv) {
     double fps = av_q2d(format_context->streams[video_stream]->r_frame_rate);
     double frame_period = 1.0/fps * 1000 * 1000 * 1000;
 
-    /* non-rt tasks */
-    //int read_task = create_non_rt_task(127, 0, read_packet);
-    //int decode_task = create_non_rt_task(127, 1, decode_frame);
-    //int texture_task = create_non_rt_task(127, 2, update_texture);
+    int read_task;
+    int decode_task;
+    int texture_task;
 
-
-    /* rt tasks without prediction */
-    //int read_task = create_task(127, 0, frame_period, read_packet, 34703);
-    //int decode_task = create_task(127, 1, frame_period, decode_frame, 9613976);
-    //int texture_task = create_task(127, 2, frame_period, update_texture, 489318);
-
-    /* rt tasks with prediction */
-    //int read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
-    //int decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, NULL);
-    //int texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, NULL);
-
-    /* rt tasks with prediction and metrics */
-    int read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
-    int decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, decode_metrics);
-    int texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, texture_metrics);
+    if (argc < 3 || strcmp(argv[2],"cfs") == 0) {
+        /* non-rt tasks */
+        int read_task = create_non_rt_task(127, 0, read_packet);
+        int decode_task = create_non_rt_task(127, 1, decode_frame);
+        int texture_task = create_non_rt_task(127, 2, update_texture);
+    } else if (strcmp(argv[2],"rt") == 0) {
+        /* rt tasks without prediction */
+        read_task = create_task(127, 0, frame_period, read_packet, 34703);
+        decode_task = create_task(127, 1, frame_period, decode_frame, 9613976);
+        texture_task = create_task(127, 2, frame_period, update_texture, 489318);
+    } else if (strcmp(argv[2],"ret") == 0) {
+        /* rt tasks with prediction */
+        read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
+        decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, NULL);
+        texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, NULL);
+    } else {
+        /* rt tasks with prediction and metrics */
+        read_task = create_task_with_prediction(127, 0, frame_period, read_packet, NULL);
+        decode_task = create_task_with_prediction(127, 1, frame_period, decode_frame, decode_metrics);
+        texture_task = create_task_with_prediction(127, 2, frame_period, update_texture, texture_metrics);
+    }
 
     struct read_workload read_loads[32];
     int first_read_load = 0;
