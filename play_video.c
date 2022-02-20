@@ -23,13 +23,53 @@ int video_stream = -1;
 
 uint8_t *buf = NULL;
 
-AVCodec *codec = NULL;
+const AVCodec *codec = NULL;
 
 SDL_Window *screen = NULL;
 SDL_Renderer *renderer = NULL;
 
+struct read_workload {
+    AVFormatContext *format_context;
+    AVPacket *packet;
+    int finished;
+};
 
-int init_player(int argc, char **argv) {
+struct pic {
+    AVFrame *pic;
+    int pic_number;
+};
+
+struct decode_workload {
+    AVCodecContext *codec_context;
+    AVPacket *packet;
+    struct pic pics[32];
+    int n_pics;
+    int finished;
+};
+
+struct texture_workload {
+    struct pic pic;
+    SDL_Texture *texture;
+    int finished;
+};
+
+
+static double now() {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    double t_now = t.tv_nsec;
+    return t_now + t.tv_sec * 1000 * 1000 * 1000;
+}
+
+static double thread_now() {
+    struct timespec t;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+    double t_now = t.tv_nsec;
+    return t_now + t.tv_sec * 1000 * 1000 * 1000;
+}
+
+
+static int init_player(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "Please provide a sourcefile.\n");
         return -1;
@@ -116,20 +156,15 @@ int init_player(int argc, char **argv) {
     return 0;
 }
 
-struct read_workload {
-    AVFormatContext *format_context;
-    AVPacket *packet;
-    int finished;
-};
-
-struct read_workload init_read_load() {
+static struct read_workload init_read_load() {
     struct read_workload ret = {.format_context = format_context,
                                 .packet = NULL,
                                 .finished = 0};
     return ret;
 }
 
-void read_frame(void *workload) {
+static void read_frame(void *workload) {
+    double t_begin = thread_now();
     struct read_workload *load = workload;
 
     /* allocate packet */
@@ -150,22 +185,10 @@ void read_frame(void *workload) {
 
         load->finished = 1;
     }
+    //printf("Reading took %.0fus\n", (thread_now() - t_begin) / 1000);
 }
 
-struct pic {
-    AVFrame *pic;
-    int pic_number;
-};
-
-struct decode_workload {
-    AVCodecContext *codec_context;
-    AVPacket *packet;
-    struct pic pics[32];
-    int n_pics;
-    int finished;
-};
-
-struct decode_workload init_decode_load(AVPacket *packet) {
+static struct decode_workload init_decode_load(AVPacket *packet) {
     struct decode_workload ret = {.codec_context = codec_context,
                                   .packet = packet,
                                   .n_pics = 0,
@@ -173,7 +196,8 @@ struct decode_workload init_decode_load(AVPacket *packet) {
     return ret;
 }
 
-void decode_frame(void *workload) {
+static void decode_frame(void *workload) {
+    double t_begin = thread_now();
     static int n = 0;
     struct decode_workload *load = workload;
 
@@ -213,6 +237,8 @@ void decode_frame(void *workload) {
         load->pics[load->n_pics].pic_number = codec_context->frame_number;
 
         ++load->n_pics;
+
+        //printf("Decoding took %.0fus\n", (thread_now() - t_begin) / 1000);
     }
 
     /* clean up */
@@ -224,23 +250,18 @@ void decode_frame(void *workload) {
     load->finished = 1;
 }
 
-struct texture_workload {
-    struct pic pic;
-    SDL_Texture *texture;
-    int finished;
-};
-
-struct texture_workload init_texture_load() {
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING,
-                                codec_context->width, codec_context->height);
+static struct texture_workload init_texture_load() {
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12,
+                                             SDL_TEXTUREACCESS_STREAMING, codec_context->width,
+                                             codec_context->height);
 
     struct texture_workload ret = {.texture = texture,
                                    .finished = 0};
     return ret;
 }
 
-void update_texture(void *texture_workload) {
-
+static void update_texture(void *texture_workload) {
+    double t_begin = thread_now();
     struct texture_workload *load = texture_workload;
 
 
@@ -249,20 +270,15 @@ void update_texture(void *texture_workload) {
     SDL_UpdateYUVTexture(load->texture, &rect, load->pic.pic->data[0], load->pic.pic->linesize[0],
                          load->pic.pic->data[1], load->pic.pic->linesize[1], load->pic.pic->data[2],
                          load->pic.pic->linesize[2]);
+
     /* clean up pic */
     av_frame_free(&load->pic.pic);
     av_free(load->pic.pic);
     load->pic.pic = NULL;
     load->finished = 1;
+    //printf("Texturing took %.0fus\n", (thread_now() - t_begin) / 1000);
 }
 
-
-double now() {
-    struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    double t_now = t.tv_nsec;
-    return t_now + t.tv_sec * 1000 * 1000 * 1000;
-}
 
 int main(int argc, char **argv) {
     /* put the job spawning onto CPU 7 */
@@ -298,9 +314,9 @@ int main(int argc, char **argv) {
     double fps = av_q2d(format_context->streams[video_stream]->r_frame_rate);
     double frame_period = 1.0/fps * 1000 * 1000 * 1000;
 
-    int read_task = create_non_rt_task(64, 0, read_frame);
-    int decode_task = create_non_rt_task(64, 1, decode_frame);
-    int texture_task = create_non_rt_task(64, 2, update_texture);
+    int read_task = create_non_rt_task(127, 0, read_frame);
+    int decode_task = create_non_rt_task(127, 1, decode_frame);
+    int texture_task = create_non_rt_task(127, 2, update_texture);
 
     //int read_task = create_task_with_prediction(1, 0, frame_period, read_frame, NULL);
     //int decode_task = create_task_with_prediction(2, 1, frame_period, decode_frame, NULL);
@@ -323,13 +339,13 @@ int main(int argc, char **argv) {
     int first_decode_load = 0;
     int n_decode_loads = 0;
 
-    struct texture_workload texture_loads[32];
-    int first_texture_load = 0;
-    int n_texture_loads = 0;
+    struct pic pics[32];
+    int first_pic = 0;
+    int n_pics = 0;
 
-    for (int i = 0; i < 32; ++i) {
-        texture_loads[i] = init_texture_load();
-    }
+    struct texture_workload texture_load;
+    int n_texture_loads = 0;
+    texture_load = init_texture_load();
 
     double t_next_pic = now();
     int n_pics_shown = 0;
@@ -365,22 +381,32 @@ int main(int argc, char **argv) {
         /* check if decode job finished */
         struct decode_workload *decode_load = &decode_loads[first_decode_load];
         if (n_decode_loads && decode_load->finished
-            && n_texture_loads + decode_load->n_pics <= 32) {
+            && n_pics + decode_load->n_pics <= 32) {
             for (int i = 0; i < decode_load->n_pics; ++i) {
-                /* init new texture job */
-                int next_texture_load = (first_texture_load + n_texture_loads) % 32;
-                struct texture_workload *texture_load = &texture_loads[next_texture_load];
-                texture_load->pic = decode_load->pics[i];
-                texture_load->finished = 0;
+                /* save decoded picture */
+                int next_pic = (first_pic + n_pics) % 32;
+                pics[next_pic] = decode_load->pics[i];
 
-                add_job_to_task(texture_task, texture_load);
-                release_sem(texture_task);
-                ++n_texture_loads;
+                ++n_pics;
             }
 
             ++first_decode_load;
             first_decode_load %= 32;
             --n_decode_loads;
+        }
+
+        /* check if texture task is ready and there is a pic to texture */
+        if (!n_texture_loads && n_pics) {
+            /* start texture job */
+            texture_load.finished = 0;
+            texture_load.pic = pics[first_pic];
+            add_job_to_task(texture_task, &texture_load);
+            release_sem(texture_task);
+
+            ++first_pic;
+            first_pic %= 32;
+            --n_pics;
+            ++n_texture_loads;
         }
 
         double t_until_next_pic = t_next_pic - now();
@@ -392,46 +418,61 @@ int main(int argc, char **argv) {
         }
 
         /* check if texture job finished */
-        struct texture_workload *texture_load = &texture_loads[first_texture_load];
-        if (n_texture_loads && texture_load->finished) {
+        if (n_texture_loads && texture_load.finished) {
+            int did_wait = 0;
             /* reset timing if at start */
             if (!n_pics_shown) {
                 t_next_pic = now();
+                t_until_next_pic = 0;
             } else {
-                /* busily wait until there is only 5us remaining */
-                while (t_until_next_pic > 5000) {
+                /* busily wait until there is only 10us remaining */
+                while (t_until_next_pic > 10 * 1000) {
                     t_until_next_pic = t_next_pic - now();
+                    did_wait = 1;
                 }
             }
 
             t_next_pic += frame_period;
 
-            /* only show if it is not more than 1 frame period too late*/
-            if (-t_until_next_pic < frame_period) {
-                if (t_until_next_pic < 0) {
-                    printf("did_sleep? %d\t", did_sleep);
-                    printf("Just a little late: %.0f\n", -t_until_next_pic);
-                }
 
-                did_sleep = 0;
-                SDL_RenderClear(renderer);
-                SDL_RenderCopy(renderer, texture_load->texture, NULL, NULL);
-                SDL_RenderPresent(renderer);
-            } else {
-                printf("Dropping frame %d!\n", texture_load->pic.pic_number);
+            ///* reset if more than 5 frames late */
+            //if (-t_until_next_pic > 5 * frame_period) {
+            //    printf("Resetting timing because of frame %d being %.0fus too late.\n",
+            //           texture_load.pic.pic_number, -t_until_next_pic / 1000);
+            //    t_next_pic = now() + frame_period;
+            //    t_until_next_pic = 0;
+            //}
+
+            /* reset timing if too late */
+            if (-t_until_next_pic > frame_period) {
+                printf("Resetting timing because of frame %d being %.0fus too late.\n",
+                       texture_load.pic.pic_number, -t_until_next_pic / 1000);
+                t_next_pic = now() + frame_period;
+                t_until_next_pic = 0;
             }
 
-            ++first_texture_load;
-            first_texture_load %= 32;
+            if (t_until_next_pic < 0) {
+                printf("did_sleep? %d\t", did_sleep);
+                printf("did_wait? %d\t", did_wait);
+                printf("Just a little late: %.0fus\n", -t_until_next_pic / 1000);
+            }
+
+            did_sleep = 0;
+
+            printf("Render frame %d\n", texture_load.pic.pic_number);
+            //SDL_RenderClear(renderer);
+            //SDL_RenderCopy(renderer, texture_load.texture, NULL, NULL);
+            //SDL_RenderPresent(renderer);
+            //printf("Rendering took %.0fus\n", (thread_now() - t_begin) / 1000);
+
             --n_texture_loads;
             ++n_pics_shown;
+            continue;
         }
     }
 
-    /* destroy textures */
-    for (int i = 0; i < 32; ++i) {
-        SDL_DestroyTexture(texture_loads[i].texture);
-    }
+    /* destroy texture */
+    SDL_DestroyTexture(texture_load.texture);
 
     /* join tasks */
     release_sem(read_task);
