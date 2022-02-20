@@ -11,7 +11,7 @@
 #include <predictor/predictor.h>
 
 #include "rt.h"
-#include "sched_sim_tracepoint.h"
+#include "task_lib_tracepoint.h"
 
 
 using namespace std::chrono_literals;
@@ -42,7 +42,7 @@ class TaskBase {
 
     void run_task() {
         this->_pid = gettid();
-        lttng_ust_tracepoint(sched_sim, init_task, this->_id, this->_pid);
+        lttng_ust_tracepoint(task_lib, init_task, this->_id, this->_pid);
 
         if (not this->_cpus.empty()) {
             cpu_set_t set;
@@ -58,7 +58,7 @@ class TaskBase {
                 exit(-1);
             }
 
-            lttng_ust_tracepoint(sched_sim, migrated_task, this->_id, 0);
+            lttng_ust_tracepoint(task_lib, migrated_task, this->_id, 0);
         }
 
         if (this->_realtime_enabled) {
@@ -87,20 +87,20 @@ class TaskBase {
                 exit(-1);
             }
 
-            lttng_ust_tracepoint(sched_sim, started_real_time_task, this->_id);
+            lttng_ust_tracepoint(task_lib, started_real_time_task, this->_id);
             sched_yield();
         }
 
         /* run jobs if there are some */
         int job_id = 0;
         while (true) {
-            lttng_ust_tracepoint(sched_sim, acquire_sem, this->_id);
+            lttng_ust_tracepoint(task_lib, acquire_sem, this->_id);
             this->_sem.acquire();
-            lttng_ust_tracepoint(sched_sim, acquired_sem, this->_id);
+            lttng_ust_tracepoint(task_lib, acquired_sem, this->_id);
 
             if (not this->jobs_left()) {
                 this->_running = false;
-                lttng_ust_tracepoint(sched_sim, finished_task, this->_id);
+                lttng_ust_tracepoint(task_lib, finished_task, this->_id);
                 break;
             }
             this->run_job(job_id);
@@ -157,7 +157,7 @@ class Task : public TaskBase {
                 this->_last_checkpoint = thread_now();
             } else {
 
-                lttng_ust_tracepoint(sched_sim, prediction, this->_id, id, prediction / 1ns);
+                lttng_ust_tracepoint(task_lib, prediction, this->_id, id, prediction / 1ns);
 
                 /* configure deadline scheduling */
                 struct sched_attr attr;
@@ -176,7 +176,7 @@ class Task : public TaskBase {
             }
         }
 
-        lttng_ust_tracepoint(sched_sim, begin_job, this->_id, id);
+        lttng_ust_tracepoint(task_lib, begin_job, this->_id, id);
 
         this->_execute(arg);
 
@@ -189,7 +189,7 @@ class Task : public TaskBase {
             this->_predictor.train(0, id, duration_cast<std::chrono::nanoseconds>(
                                           std::chrono::duration<double>{runtime} + 0.5ns));
         }
-        lttng_ust_tracepoint(sched_sim, end_job, this->_id, id, runtime / 1ns);
+        lttng_ust_tracepoint(task_lib, end_job, this->_id, id, runtime / 1ns);
         if (this->_prediction_enabled and this->_realtime_enabled and this->_runtimes.size() == 1) {
             sched_yield();
         }

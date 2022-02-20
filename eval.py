@@ -215,30 +215,30 @@ def parse_trace_file(trace_file: str) -> Dict[int, Task]:
     tasks = {}
     pid_mapping: Dict[int, int]
     pid_mapping = {}
-    for e in events['sched_sim:init_task']:
+    for e in events['task_lib:init_task']:
         task = Task(int(e.data['tid']), int(e.data['pid']))
         task.add_init_event(e)
         tasks[task.id] = task
         pid_mapping[task.pid] = task.id
 
     # assign migration events
-    for e in events['sched_sim:migrated_task']:
+    for e in events['task_lib:migrated_task']:
         tasks[int(e.data['task'])].add_migrated_event(e)
 
     # assign real time start events
-    for e in events['sched_sim:started_real_time_task']:
+    for e in events['task_lib:started_real_time_task']:
         tasks[int(e.data['task'])].add_started_real_time_event(e)
 
     # assign real time start events
-    for e in events['sched_sim:finished_task']:
+    for e in events['task_lib:finished_task']:
         tasks[int(e.data['task'])].add_finished_event(e)
 
     # assign aquire_sem events
-    for e in events['sched_sim:acquire_sem']:
+    for e in events['task_lib:acquire_sem']:
         tasks[int(e.data['task'])].add_aquire_sem_event(e)
 
     # assign aquired_sem events
-    for e in events['sched_sim:acquired_sem']:
+    for e in events['task_lib:acquired_sem']:
         tasks[int(e.data['task'])].add_aquired_sem_event(e)
 
     # assign scheduling events
@@ -255,11 +255,11 @@ def parse_trace_file(trace_file: str) -> Dict[int, Task]:
         tasks[int(e.data['task'])].add_job_spawn_event(e)
 
     # assign job beginnings
-    for e in events['sched_sim:begin_job']:
+    for e in events['task_lib:begin_job']:
         tasks[int(e.data['task'])].add_begin_job_event(e)
 
     # assign job endings
-    for e in events['sched_sim:end_job']:
+    for e in events['task_lib:end_job']:
         tasks[int(e.data['task'])].add_end_job_event(e)
 
     # assign runtime events
