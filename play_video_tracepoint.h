@@ -35,7 +35,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
 
 LTTNG_UST_TRACEPOINT_EVENT(
     play_video,
-    read_packet,
+    decode_next,
     LTTNG_UST_TP_ARGS(
         float, duration_arg
     ),
@@ -57,7 +57,7 @@ LTTNG_UST_TRACEPOINT_EVENT(
 
 LTTNG_UST_TRACEPOINT_EVENT(
     play_video,
-    update_texture,
+    prepare,
     LTTNG_UST_TP_ARGS(
         float, duration_arg
     ),
@@ -70,9 +70,11 @@ LTTNG_UST_TRACEPOINT_EVENT(
     play_video,
     render,
     LTTNG_UST_TP_ARGS(
+        float, duration_arg,
         float, tardiness_arg
     ),
     LTTNG_UST_TP_FIELDS(
+        lttng_ust_field_float(double, duration, duration_arg)
         lttng_ust_field_float(double, tardiness, tardiness_arg)
     )
 )

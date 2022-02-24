@@ -58,6 +58,7 @@ int create_task_with_prediction(int cpus, int id, int period, void (*execute)(vo
 
 void add_job_to_task(int task, void *arg) {
     tasks[task]->add_job(arg);
+    tasks[task]->sem().release();
 }
 
 void join_task(int task) {

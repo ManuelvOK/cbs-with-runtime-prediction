@@ -52,9 +52,6 @@ def process_cmd_args():
     aparser.add_argument('trace_pred', metavar='TRACE_PRED', type=str,
                          help='file with the filtered trace report for rt execution with \
                                prediction but without metrics')
-    aparser.add_argument('trace_metr', metavar='TRACE_METR', type=str,
-                         help='file with the filtered trace report for rt execution with \
-                               predition and metrics')
     aparser.add_argument('-o', '--output', help='output file')
     return aparser.parse_args()
 
@@ -76,16 +73,14 @@ def parse_trace_file(trace_file: str) -> Dict[str, List[Event]]:
 
 
 def print_tardiness(cfs_events: Dict[str, List[Event]], rt_events: Dict[str, List[Event]],
-                    pred_events: Dict[str, List[Event]], metr_events: Dict[str, List[Event]],
-                    file: IO) -> None:
+                    pred_events: Dict[str, List[Event]], file: IO) -> None:
     print("id,tard_cfs,tard_pred,tard_metr", file=file)
 
     cfs_tardiness = [float(e.data['tardiness']) for e in cfs_events['play_video:render']]
     rt_tardiness = [float(e.data['tardiness']) for e in rt_events['play_video:render']]
     pred_tardiness = [float(e.data['tardiness']) for e in pred_events['play_video:render']]
-    metr_tardiness = [float(e.data['tardiness']) for e in metr_events['play_video:render']]
 
-    for id, tards in enumerate(zip(cfs_tardiness, pred_tardiness, metr_tardiness)):
+    for id, tards in enumerate(zip(cfs_tardiness, rt_tardiness, pred_tardiness)):
         data = [-t if t < -1000 else 0 for t in tards]
         data_str = ",".join([str(d) for d in data])
         print(f"{id}, {data_str}", file=file)
@@ -96,21 +91,21 @@ def main():
 
     cfs_events = parse_trace_file(args.trace_cfs)
     rt_events = parse_trace_file(args.trace_rt)
-    pred_events = parse_trace_file(args.trace_pred)
-    metr_events = parse_trace_file(args.trace_metr)
+    red_events = parse_trace_file(args.trace_pred)
 
     print_tardiness(cfs_events, rt_events, pred_events, metr_events, sys.stdout)
 
-    # read_times = [float(e.data['duration']) for e in cfs_events['play_video:read_packet']]
-    # print(f"read times - min: {min(read_times)} max: {max(read_times)} mean: {mean(read_times)}")
-
-    # decode_times = [float(e.data['duration']) for e in cfs_events['play_video:decode_frame']]
+    # decode_times = [float(e.data['duration']) for e in cfs_events['play_video:decode_next']]
     # print(f"decode times - min: {min(decode_times)} max: {max(decode_times)} mean: \
     #         {mean(decode_times)}")
 
-    # texture_times = [float(e.data['duration']) for e in cfs_events['play_video:update_texture']]
-    # print(f"texture times - min: {min(texture_times)} max: {max(texture_times)} mean: \
-    #         {mean(texture_times)}")
+    # prepare_times = [float(e.data['duration']) for e in cfs_events['play_video:prepare']]
+    # print(f"prepare times - min: {min(prepare_times)} max: {max(prepare_times)} mean: \
+    #         {mean(prepare_times)}")
+
+    # render_times = [float(e.data['duration']) for e in cfs_events['play_video:render']]
+    # print(f"render times - min: {min(render_times)} max: {max(render_times)} mean: \
+    #         {mean(render_times)}")
 
     # with open(args.output, "w+") as f:
     #     for task in tasks.values():
