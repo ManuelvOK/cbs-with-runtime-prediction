@@ -46,6 +46,7 @@ class TaskBase {
 
         if (not this->_cpus.empty()) {
             cpu_set_t set;
+            CPU_ZERO(&set);
 
             for (const auto &cpu: this->_cpus) {
                 std::cout << "task " << this->_id << " on cpu " << cpu << std::endl;

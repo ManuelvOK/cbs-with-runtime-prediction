@@ -48,13 +48,13 @@ struct prepare_workload {
     AVFrame *frame;
     AVFrame *scaled_frame;
     uint8_t *buffer;
-    SDL_Texture *texture;
     int finished;
 };
 
 struct render_workload {
     int frame_id;
     SDL_Texture *texture;
+    AVFrame *scaled_frame;
     double t_to_show;
     int finished;
 };
@@ -231,6 +231,22 @@ static void prepare(void *prepare_workload) {
     /* scale */
     sws_scale(sws_context, (uint8_t const * const *)load->frame->data, load->frame->linesize, 0,
               codec_context->height, load->scaled_frame->data, load->scaled_frame->linesize);
+    av_frame_free(&load->frame);
+    av_free(load->frame);
+
+    lttng_ust_tracepoint(play_video, prepare, thread_now() - t_begin);
+    //printf("%10.0f: %4d - preparing took %.0fns\n", now(), load->frame_id, thread_now() - t_begin);
+
+    load->finished = 1;
+}
+
+static void render(void *render_workload) {
+    static int n_pics_shown = 0;
+    double t_begin = thread_now();
+    //double t_begin_global = now();
+    struct render_workload *load = render_workload;
+
+    double t_until_next_pic = load->t_to_show - now();
 
     /* prepare texture to render */
     SDL_Rect rect = {0, 0, codec_context->width, codec_context->height};
@@ -238,21 +254,7 @@ static void prepare(void *prepare_workload) {
                          load->scaled_frame->linesize[0], load->scaled_frame->data[1],
                          load->scaled_frame->linesize[1], load->scaled_frame->data[2],
                          load->scaled_frame->linesize[2]);
-    lttng_ust_tracepoint(play_video, prepare, thread_now() - t_begin);
-    //printf("%10.0f: %4d - preparing took %.0fns\n", now(), load->frame_id, thread_now() - t_begin);
 
-    av_frame_free(&load->frame);
-    av_free(load->frame);
-    load->finished = 1;
-}
-
-static void render(void *render_workload) {
-    static int n_pics_shown = 0;
-    double t_begin = thread_now();
-    double t_begin_global = now();
-    struct render_workload *load = render_workload;
-
-    double t_until_next_pic = load->t_to_show - now();
 
     /* sleep until there is less then 2ms time left */
     if (t_until_next_pic / 1000 / 1000 >= 2) {
@@ -391,10 +393,6 @@ int main(int argc, char **argv) {
         load->scaled_frame = av_frame_alloc();
         av_image_fill_arrays(load->scaled_frame->data, load->scaled_frame->linesize, load->buffer,
                              AV_PIX_FMT_YUV420P, codec_context->width, codec_context->height, 32);
-        /* init texture */
-        load->texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12,
-                                          SDL_TEXTUREACCESS_STREAMING,
-                                          codec_context->width, codec_context->height);
         load->finished = 0;
     }
 
@@ -404,13 +402,17 @@ int main(int argc, char **argv) {
 
     /* initialise all render loads */
     for (int i = 0; i < MAX_RENDER_LOADS; ++i) {
-        render_loads[i].texture = NULL;
-        render_loads[i].t_to_show = 0;
-        render_loads[i].finished = 0;
+        struct render_workload *load = &render_loads[i];
+        load->t_to_show = 0;
+        /* init texture */
+        load->texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12,
+                                          SDL_TEXTUREACCESS_STREAMING,
+                                          codec_context->width, codec_context->height);
+        load->finished = 0;
     }
 
     double t_next_pic = now() + 10 * frame_period;
-    int n_pics_started = 32;
+    int n_pics_started = MAX_DECODE_LOADS;
     int running = 1;
     while (running && n_pics_started < N_PICS_TO_SHOW) {
         /* check for quit */
@@ -471,7 +473,7 @@ int main(int argc, char **argv) {
             int next_render_load = (first_render_load + n_render_loads) % MAX_RENDER_LOADS;
             struct render_workload *render_load = &render_loads[next_render_load];
             render_load->frame_id = prepare_load->frame_id;
-            render_load->texture = prepare_load->texture;
+            render_load->scaled_frame = prepare_load->scaled_frame;
             render_load->t_to_show = t_next_pic;
             render_load->finished = 0;
             ++n_render_loads;
@@ -523,6 +525,10 @@ int main(int argc, char **argv) {
         av_frame_free(&load->scaled_frame);
         av_free(load->scaled_frame);
         av_free(load->buffer);
+    }
+
+    for (int i = 0; i < MAX_PREPARE_LOADS; ++i) {
+        struct render_workload *load = &render_loads[i];
         SDL_DestroyTexture(load->texture);
     }
 
