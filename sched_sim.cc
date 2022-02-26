@@ -153,6 +153,7 @@ int main(int argc, char *argv[]) {
 
     /* put the job spawning onto CPU 7 */
     cpu_set_t set;
+    CPU_ZERO(&set);
     CPU_SET(7,&set);
 
     int ret;

@@ -216,7 +216,7 @@ class Task : public TaskBase {
     /* task with prediction but without metrics */
     Task(int id, duration period, std::function<void (T)> execute,
          std::vector<unsigned> cpus = std::vector<unsigned>())
-        : TaskBase(id, false, true, duration(0), period, cpus),
+        : TaskBase(id, true, true, duration(0), period, cpus),
           _execute(execute) {
             this->_generate = [](T t) { (void)t; return std::vector<double>(); };
         }
@@ -225,7 +225,7 @@ class Task : public TaskBase {
     Task(int id, duration period, std::function<void (T)> execute,
          std::function<std::vector<double> (T)> generate,
          std::vector<unsigned> cpus = std::vector<unsigned>())
-        : TaskBase(id, false, true, duration(0), period, cpus),
+        : TaskBase(id, true, true, duration(0), period, cpus),
           _generate(generate),
           _execute(execute) {}
 

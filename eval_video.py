@@ -74,14 +74,15 @@ def parse_trace_file(trace_file: str) -> Dict[str, List[Event]]:
 
 def print_tardiness(cfs_events: Dict[str, List[Event]], rt_events: Dict[str, List[Event]],
                     pred_events: Dict[str, List[Event]], file: IO) -> None:
-    print("id,tard_cfs,tard_pred,tard_metr", file=file)
+    print("id,tard_cfs,tard_rt,tard_pred", file=file)
 
     cfs_tardiness = [float(e.data['tardiness']) for e in cfs_events['play_video:render']]
     rt_tardiness = [float(e.data['tardiness']) for e in rt_events['play_video:render']]
     pred_tardiness = [float(e.data['tardiness']) for e in pred_events['play_video:render']]
 
     for id, tards in enumerate(zip(cfs_tardiness, rt_tardiness, pred_tardiness)):
-        data = [-t if t < -1000 else 0 for t in tards]
+        # data = [-t if t < -1000 else 0 for t in tards]
+        data = [-t for t in tards]
         data_str = ",".join([str(d) for d in data])
         print(f"{id}, {data_str}", file=file)
 
@@ -91,9 +92,9 @@ def main():
 
     cfs_events = parse_trace_file(args.trace_cfs)
     rt_events = parse_trace_file(args.trace_rt)
-    red_events = parse_trace_file(args.trace_pred)
+    pred_events = parse_trace_file(args.trace_pred)
 
-    print_tardiness(cfs_events, rt_events, pred_events, metr_events, sys.stdout)
+    print_tardiness(cfs_events, rt_events, pred_events, sys.stdout)
 
     # decode_times = [float(e.data['duration']) for e in cfs_events['play_video:decode_next']]
     # print(f"decode times - min: {min(decode_times)} max: {max(decode_times)} mean: \

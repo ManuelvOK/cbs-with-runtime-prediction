@@ -20,7 +20,7 @@ enum {
     MAX_DECODE_LOADS = 8,
     MAX_PREPARE_LOADS = 8,
     MAX_RENDER_LOADS = 8,
-    N_PICS_TO_SHOW = 3600,
+    N_PICS_TO_SHOW = 10800,
 };
 
 AVFormatContext *format_context = NULL;
@@ -150,6 +150,9 @@ static int init_player(int argc, char **argv) {
         fprintf(stderr, "Error creating renderer.\n");
         exit(-1);
     }
+
+    SDL_RenderClear(renderer);
+    SDL_RenderPresent(renderer);
 
     sws_context = sws_getContext(codec_context->width, codec_context->height,
                                  codec_context->pix_fmt,
@@ -346,9 +349,9 @@ int main(int argc, char **argv) {
         render_task = create_non_rt_task(127, 3, render);
     } else if (strcmp(argv[2],"rt") == 0) {
         /* rt tasks without prediction */
-        decode_task = create_task(127, 0, frame_period, decode_next, 9291982);
-        prepare_task = create_task(127, 1, frame_period, prepare, 998915);
-        render_task = create_task(127, 3, frame_period, render, 2521469);
+        decode_task = create_task(127, 0, frame_period, decode_next, 8268150);
+        prepare_task = create_task(127, 1, frame_period, prepare, 526121);
+        render_task = create_task(127, 3, frame_period, render, 2508070);
     } else {
         /* rt tasks with prediction */
         decode_task = create_task_with_prediction(127, 0, frame_period, decode_next, NULL);
