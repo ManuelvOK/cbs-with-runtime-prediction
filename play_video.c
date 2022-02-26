@@ -15,6 +15,7 @@
 #include "rt.h"
 #include "ctask.h"
 #include "play_video_tracepoint.h"
+#include "frame_types.h"
 
 enum {
     MAX_DECODE_LOADS = 8,
@@ -171,6 +172,21 @@ static int init_player(int argc, char **argv) {
     return 0;
 }
 
+static struct metrics decode_metrics(void *workload) {
+    struct decode_next_workload *load = workload;
+    struct metrics metrics;
+    metrics.size = 1;
+    metrics.data = malloc(metrics.size * sizeof(double));
+    switch (frame_types[load->frame_id]) {
+        case 'I': metrics.data[0] = 10000; break;
+        case 'P': metrics.data[0] =   100; break;
+        case 'B': metrics.data[0] =     1; break;
+        default: break;
+    }
+    //printf("%c-frame. metric: %5.0f\n",frame_types[load->frame_id], metrics.data[0]);
+    return metrics;
+}
+
 static void decode_next(void *workload) {
     static int packet_read = 0;
     double t_begin = thread_now();
@@ -279,7 +295,7 @@ static void render(void *render_workload) {
 
 
     if (n_pics_shown < 25 || n_pics_shown % 25 == 0) {
-        printf("Rendered pic %d\n", n_pics_shown);
+        //printf("Rendered pic %d\n", n_pics_shown);
     }
     SDL_RenderClear(renderer);
     //printf("%10.0f: %4d - RenderClear finished\n", now(), load->frame_id);
@@ -342,21 +358,26 @@ int main(int argc, char **argv) {
     int prepare_task;
     int render_task;
 
-    if (argc < 3 || strcmp(argv[2],"cfs") == 0) {
+    if (argc < 3 || strcmp(argv[2], "cfs") == 0) {
         /* non-rt tasks */
         decode_task = create_non_rt_task(127, 0, decode_next);
         prepare_task = create_non_rt_task(127, 1, prepare);
-        render_task = create_non_rt_task(127, 3, render);
-    } else if (strcmp(argv[2],"rt") == 0) {
+        render_task = create_non_rt_task(127, 2, render);
+    } else if (strcmp(argv[2], "rt") == 0) {
         /* rt tasks without prediction */
         decode_task = create_task(127, 0, frame_period, decode_next, 8268150);
         prepare_task = create_task(127, 1, frame_period, prepare, 526121);
-        render_task = create_task(127, 3, frame_period, render, 2508070);
-    } else {
+        render_task = create_task(127, 2, frame_period, render, 2508070);
+    } else if (strcmp(argv[2], "pred") == 0) {
         /* rt tasks with prediction */
         decode_task = create_task_with_prediction(127, 0, frame_period, decode_next, NULL);
         prepare_task = create_task_with_prediction(127, 1, frame_period, prepare, NULL);
-        render_task = create_task_with_prediction(127, 3, frame_period, render, NULL);
+        render_task = create_task_with_prediction(127, 2, frame_period, render, NULL);
+    } else {
+        /* rt tasks with prediction and metrics */
+        decode_task = create_task_with_prediction(127, 0, frame_period, decode_next, decode_metrics);
+        prepare_task = create_task_with_prediction(127, 1, frame_period, prepare, NULL);
+        render_task = create_task_with_prediction(127, 2, frame_period, render, NULL);
     }
     /* wait for tasks to init */
     SDL_Delay(10);
@@ -417,7 +438,7 @@ int main(int argc, char **argv) {
     double t_next_pic = now() + 10 * frame_period;
     int n_pics_started = MAX_DECODE_LOADS;
     int running = 1;
-    while (running && n_pics_started < N_PICS_TO_SHOW) {
+    while (running && n_pics_started - MAX_DECODE_LOADS < N_PICS_TO_SHOW) {
         /* check for quit */
         SDL_Event event;
         while (0 != SDL_PollEvent(&event)) {

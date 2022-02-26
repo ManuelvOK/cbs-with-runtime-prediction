@@ -52,6 +52,9 @@ def process_cmd_args():
     aparser.add_argument('trace_pred', metavar='TRACE_PRED', type=str,
                          help='file with the filtered trace report for rt execution with \
                                prediction but without metrics')
+    aparser.add_argument('trace_metr', metavar='TRACE_METR', type=str,
+                         help='file with the filtered trace report for rt execution with \
+                               prediction and metrics')
     aparser.add_argument('-o', '--output', help='output file')
     return aparser.parse_args()
 
@@ -73,17 +76,34 @@ def parse_trace_file(trace_file: str) -> Dict[str, List[Event]]:
 
 
 def print_tardiness(cfs_events: Dict[str, List[Event]], rt_events: Dict[str, List[Event]],
-                    pred_events: Dict[str, List[Event]], file: IO) -> None:
-    print("id,tard_cfs,tard_rt,tard_pred", file=file)
+                    pred_events: Dict[str, List[Event]], metr_events: Dict[str, List[Event]],
+                    file: IO) -> None:
+    print("id,tard_cfs,tard_rt,tard_pred,tard_metr,pred_pred,pred_metr,exec_pred,exec_metr",
+          file=file)
 
-    cfs_tardiness = [float(e.data['tardiness']) for e in cfs_events['play_video:render']]
-    rt_tardiness = [float(e.data['tardiness']) for e in rt_events['play_video:render']]
-    pred_tardiness = [float(e.data['tardiness']) for e in pred_events['play_video:render']]
+    cfs_tardiness = [-float(e.data['tardiness']) for e in cfs_events['play_video:render']]
+    rt_tardiness = [-float(e.data['tardiness']) for e in rt_events['play_video:render']]
+    pred_tardiness = [-float(e.data['tardiness']) for e in pred_events['play_video:render']]
+    metr_tardiness = [-float(e.data['tardiness']) for e in metr_events['play_video:render']]
 
-    for id, tards in enumerate(zip(cfs_tardiness, rt_tardiness, pred_tardiness)):
-        # data = [-t if t < -1000 else 0 for t in tards]
-        data = [-t for t in tards]
-        data_str = ",".join([str(d) for d in data])
+    pred_prediction = [float(0)] + [float(e.data['prediction'])
+                                    for e in pred_events['task_lib:prediction']
+                                    if int(e.data['task']) == 0]
+
+    metr_prediction = [float(0)] + [float(e.data['prediction'])
+                                    for e in metr_events['task_lib:prediction']
+                                    if int(e.data['task']) == 0]
+
+    pred_exec = [float(e.data['runtime'])
+                 for e in pred_events['task_lib:end_job']
+                 if int(e.data['task']) == 0]
+    metr_exec = [float(e.data['runtime'])
+                 for e in metr_events['task_lib:end_job']
+                 if int(e.data['task']) == 0]
+
+    for id, values in enumerate(zip(cfs_tardiness, rt_tardiness, pred_tardiness, metr_tardiness,
+                                    pred_prediction, metr_prediction, pred_exec, metr_exec)):
+        data_str = ",".join([str(v) for v in values])
         print(f"{id}, {data_str}", file=file)
 
 
@@ -93,8 +113,9 @@ def main():
     cfs_events = parse_trace_file(args.trace_cfs)
     rt_events = parse_trace_file(args.trace_rt)
     pred_events = parse_trace_file(args.trace_pred)
+    metr_events = parse_trace_file(args.trace_metr)
 
-    print_tardiness(cfs_events, rt_events, pred_events, sys.stdout)
+    print_tardiness(cfs_events, rt_events, pred_events, metr_events, sys.stdout)
 
     # decode_times = [float(e.data['duration']) for e in cfs_events['play_video:decode_next']]
     # print(f"decode times - min: {min(decode_times)} max: {max(decode_times)} mean: \
