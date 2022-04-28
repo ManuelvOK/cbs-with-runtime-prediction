@@ -178,9 +178,9 @@ static struct metrics decode_metrics(void *workload) {
     metrics.size = 1;
     metrics.data = malloc(metrics.size * sizeof(double));
     switch (frame_types[load->frame_id]) {
-        case 'I': metrics.data[0] = 10000; break;
-        case 'P': metrics.data[0] =   100; break;
-        case 'B': metrics.data[0] =     1; break;
+        case 'I': metrics.data[0] =  8; break;
+        case 'P': metrics.data[0] =  9; break;
+        case 'B': metrics.data[0] = 10; break;
         default: break;
     }
     //printf("%c-frame. metric: %5.0f\n",frame_types[load->frame_id], metrics.data[0]);

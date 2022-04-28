@@ -186,7 +186,7 @@ class Task:
     def print_jobs(self, file: IO) -> None:
         for job in self.jobs.values():
             # TODO: calculate n_parts (hardcoded 1 for now)
-            print(f"j {job.id} {int((job.end - job.deadline) / 1000)} 1", file=file)
+            print(f"j {job.id} {int((job.end - job.deadline))}", file=file)
 
 
 def process_cmd_args():
